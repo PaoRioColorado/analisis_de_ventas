@@ -1,159 +1,272 @@
-import os
 import pandas as pd
-import matplotlib.pyplot as plt
-import matplotlib.ticker as ticker
-import seaborn as sns
-import tkinter as tk
-from tkinter import ttk
-import warnings
+import os
+import glob
+import dash
+from dash import dcc, html
+from dash.dependencies import Input, Output
+import plotly.express as px
 
-warnings.filterwarnings("ignore", category=UserWarning)
+print("=== INICIANDO DASHBOARD EJECUTIVO ===")
 
-# =========================
-# CARGA, LIMPIEZA Y PREPARACIÓN
-# =========================
+# =====================================================
+# 1️⃣ CARGA DE DATOS
+# =====================================================
 
-def cargar_datos():
-    carpeta = r"C:\Users\paola\Desktop\Ciencia de Datos\ventas"
-    archivos = [os.path.join(carpeta, f) for f in os.listdir(carpeta) if f.endswith(".csv")]
+carpeta = r"C:\Users\USUARIO\Desktop\Ciencia de Datos\Dataset de ventas"
+archivos = glob.glob(os.path.join(carpeta, "*.csv"))
 
-    lista_df = []
+if not archivos:
+    raise ValueError("No se encontraron archivos CSV en la carpeta")
 
-    for archivo in archivos:
-        df = pd.read_csv(archivo)
+df_list = []
 
-        # Limpiar columnas
-        df.columns = df.columns.str.strip()
-        df.dropna(how="all", inplace=True)
+for archivo in archivos:
+    df_temp = pd.read_csv(archivo, encoding="utf-8-sig", low_memory=False)
+    print(f"Archivo cargado: {os.path.basename(archivo)}")
+    df_list.append(df_temp)
 
-        # Eliminar encabezados repetidos
-        if "Cantidad Pedida" in df.columns:
-            df = df[df["Cantidad Pedida"] != "Cantidad Pedida"]
+df = pd.concat(df_list, ignore_index=True)
+print(f"Total filas cargadas: {len(df)}")
 
-        # Conversión de tipos
-        if "Cantidad Pedida" in df.columns:
-            df["Cantidad Pedida"] = pd.to_numeric(df["Cantidad Pedida"], errors="coerce")
+# =====================================================
+# 2️⃣ LIMPIEZA DE DATOS (SIN INVENTAR)
+# =====================================================
 
-        if "Precio Unitario" in df.columns:
-            df["Precio Unitario"] = pd.to_numeric(df["Precio Unitario"], errors="coerce")
+df = df[df["Fecha de Pedido"] != "Fecha de Pedido"]
 
-        if "Fecha de Pedido" in df.columns:
-            df["Fecha de Pedido"] = pd.to_datetime(
-                df["Fecha de Pedido"],
-                format="%m/%d/%y %H:%M",
-                errors="coerce"
+df["Fecha de Pedido"] = pd.to_datetime(
+    df["Fecha de Pedido"],
+    format="%m/%d/%y %H:%M",
+    errors="coerce"
+)
+
+df["Cantidad Pedida"] = pd.to_numeric(df["Cantidad Pedida"], errors="coerce")
+df["Precio Unitario"] = pd.to_numeric(df["Precio Unitario"], errors="coerce")
+
+df.dropna(subset=["Fecha de Pedido", "Cantidad Pedida", "Precio Unitario"], inplace=True)
+
+df["Ventas"] = df["Cantidad Pedida"] * df["Precio Unitario"]
+
+df["Mes"] = df["Fecha de Pedido"].dt.strftime("%B")
+
+orden_meses = [
+    "January","February","March","April","May","June",
+    "July","August","September","October","November","December"
+]
+
+df["Mes"] = pd.Categorical(df["Mes"], categories=orden_meses, ordered=True)
+
+def extraer_ciudad(direccion):
+    try:
+        return direccion.split(",")[1].strip()
+    except:
+        return "Desconocida"
+
+df["Ciudad"] = df["Dirección de Envio"].apply(extraer_ciudad)
+
+# =====================================================
+# FUNCIÓN FORMATO PROFESIONAL
+# =====================================================
+
+def formatear_monto(valor):
+    if valor >= 1_000_000:
+        return f"{valor/1_000_000:,.2f} millones USD"
+    elif valor >= 1_000:
+        return f"{valor/1_000:,.0f} mil USD"
+    else:
+        return f"{valor:,.0f} USD"
+
+# =====================================================
+# DASH APP
+# =====================================================
+
+app = dash.Dash(__name__)
+
+def card(titulo, valor):
+    return html.Div([
+        html.H4(titulo, style={"color": "#6c757d"}),
+        html.H2(valor, style={"margin": "0", "color": "#212529"})
+    ], style={
+        "backgroundColor": "white",
+        "padding": "20px",
+        "borderRadius": "10px",
+        "boxShadow": "0 4px 10px rgba(0,0,0,0.08)",
+        "flex": "1",
+        "textAlign": "center"
+    })
+
+app.layout = html.Div(style={
+    "backgroundColor": "#f4f6f9",
+    "padding": "30px",
+    "fontFamily": "Segoe UI"
+}, children=[
+
+    html.H1("Dashboard Ejecutivo de Ventas 2019"),
+
+    html.Div(id="kpis", style={
+        "display": "flex",
+        "gap": "20px",
+        "marginBottom": "30px"
+    }),
+
+    html.Div(style={"display": "flex", "gap": "20px", "marginBottom": "30px"}, children=[
+
+        dcc.Dropdown(
+            id="mes-filter",
+            options=[{"label": m, "value": m} for m in orden_meses],
+            multi=True,
+            placeholder="Filtrar por Mes"
+        ),
+
+        dcc.Dropdown(
+            id="ciudad-filter",
+            options=[{"label": c, "value": c} for c in sorted(df["Ciudad"].unique())],
+            multi=True,
+            placeholder="Filtrar por Ciudad"
+        ),
+
+        dcc.Dropdown(
+            id="producto-filter",
+            options=[{"label": p, "value": p} for p in sorted(df["Producto"].unique())],
+            multi=True,
+            placeholder="Filtrar por Producto"
+        ),
+    ]),
+
+    html.Div(style={
+        "display": "grid",
+        "gridTemplateColumns": "1fr 1fr",
+        "gap": "30px"
+    }, children=[
+        dcc.Graph(id="ventas-mensuales"),
+        dcc.Graph(id="ventas-ciudad"),
+        dcc.Graph(id="top-productos"),
+        dcc.Graph(id="productos-unidades"),
+    ]),
+
+    html.Br(),
+    dcc.Graph(id="ventas-eventos"),
+
+    html.Br(),
+    html.Div(id="insights", style={
+        "backgroundColor": "white",
+        "padding": "20px",
+        "borderRadius": "10px",
+        "boxShadow": "0 4px 10px rgba(0,0,0,0.08)"
+    })
+])
+
+# =====================================================
+# CALLBACK
+# =====================================================
+
+@app.callback(
+    Output("kpis", "children"),
+    Output("ventas-mensuales", "figure"),
+    Output("ventas-ciudad", "figure"),
+    Output("top-productos", "figure"),
+    Output("productos-unidades", "figure"),
+    Output("ventas-eventos", "figure"),
+    Output("insights", "children"),
+    Input("mes-filter", "value"),
+    Input("ciudad-filter", "value"),
+    Input("producto-filter", "value")
+)
+def update_dashboard(meses, ciudades, productos):
+
+    dff = df.copy()
+
+    if meses:
+        dff = dff[dff["Mes"].isin(meses)]
+
+    if ciudades:
+        dff = dff[dff["Ciudad"].isin(ciudades)]
+
+    if productos:
+        dff = dff[dff["Producto"].isin(productos)]
+
+    total_ventas = dff["Ventas"].sum()
+    total_pedidos = dff["ID de Pedido"].nunique()
+    ticket_promedio = total_ventas / total_pedidos if total_pedidos > 0 else 0
+
+    kpis = [
+        card("Total Ventas", formatear_monto(total_ventas)),
+        card("Total Pedidos", f"{total_pedidos:,} pedidos"),
+        card("Ticket Promedio", f"{ticket_promedio:,.2f} USD")
+    ]
+
+    ventas_mes = dff.groupby("Mes")["Ventas"].sum().reset_index()
+    fig1 = px.line(ventas_mes, x="Mes", y="Ventas", title="Ventas por Mes")
+
+    ventas_ciudad = dff.groupby("Ciudad")["Ventas"].sum().reset_index()
+    fig2 = px.bar(ventas_ciudad, x="Ciudad", y="Ventas", title="Ventas por Ciudad")
+
+    top_facturacion = dff.groupby("Producto")["Ventas"].sum().nlargest(10).reset_index()
+    fig3 = px.bar(top_facturacion, x="Ventas", y="Producto",
+                  orientation="h", title="Top 10 Productos por Facturación")
+
+    top_unidades = dff.groupby("Producto")["Cantidad Pedida"].sum().nlargest(10).reset_index()
+    fig4 = px.bar(top_unidades, x="Cantidad Pedida", y="Producto",
+                  orientation="h", title="Top 10 Productos por Unidades Vendidas")
+
+    # EVENTOS ESPECIALES
+    eventos_dict = {"Black Friday": "11-29", "Navidad": "12-25"}
+    dff["MesDia"] = dff["Fecha de Pedido"].dt.strftime("%m-%d")
+
+    eventos_resumen = []
+
+    for nombre, fecha in eventos_dict.items():
+        df_evento = dff[dff["MesDia"] == fecha]
+        if not df_evento.empty:
+            eventos_resumen.append({
+                "Evento": nombre,
+                "Ingresos": df_evento["Ventas"].sum(),
+                "Unidades": df_evento["Cantidad Pedida"].sum()
+            })
+
+    resumen_eventos = pd.DataFrame(eventos_resumen)
+
+    if not resumen_eventos.empty:
+        fig5 = px.bar(resumen_eventos, x="Evento", y="Ingresos",
+                      title="Ingresos en Fechas Especiales")
+    else:
+        fig5 = px.bar(title="No hubo ventas en fechas especiales según filtros")
+
+    # INSIGHTS
+    insights_list = [html.H3("Insights Automáticos")]
+
+    if total_ventas > 0:
+        insights_list.append(
+            html.P(f"• Ventas totales actuales: {formatear_monto(total_ventas)}.")
+        )
+
+        mejor_producto = top_facturacion.iloc[0]["Producto"] if not top_facturacion.empty else None
+        if mejor_producto:
+            insights_list.append(
+                html.P(f"• Producto con mayor facturación: {mejor_producto}.")
             )
 
-        # Eliminar filas inválidas
-        df.dropna(subset=["Cantidad Pedida", "Precio Unitario", "Fecha de Pedido"], inplace=True)
+        for evento in eventos_resumen:
+            insights_list.append(
+                html.P(
+                    f"• En {evento['Evento']} se vendieron "
+                    f"{evento['Unidades']:,} unidades "
+                    f"y se generaron {formatear_monto(evento['Ingresos'])}."
+                )
+            )
 
-        lista_df.append(df)
-
-    # Unir todos los CSV
-    if lista_df:
-        ventas = pd.concat(lista_df, ignore_index=True)
+        insights_list.append(
+            html.P("• Recomendación: reforzar stock y campañas en fechas especiales, "
+                   "especialmente para los productos más vendidos.")
+        )
     else:
-        ventas = pd.DataFrame()
+        insights_list.append(html.P("No hay datos con los filtros seleccionados."))
 
-    # Variables derivadas
-    if not ventas.empty:
-        ventas["Ventas USD"] = ventas["Cantidad Pedida"] * ventas["Precio Unitario"]
-        ventas["Hora"] = ventas["Fecha de Pedido"].dt.hour
-        ventas["Mes"] = ventas["Fecha de Pedido"].dt.month
-        ventas["DiaSemana"] = ventas["Fecha de Pedido"].dt.day_name()
-        ventas["EsFinDeSemana"] = ventas["DiaSemana"].isin(["Saturday", "Sunday"])
+    return kpis, fig1, fig2, fig3, fig4, fig5, html.Div(insights_list)
 
-    return ventas
+# =====================================================
+# RUN
+# =====================================================
 
-ventas = cargar_datos()
-
-print("Filas cargadas:", ventas.shape)
-print("Columnas:", ventas.columns.tolist())
-print(ventas.head())
-
-# =========================
-# FORMATO
-# =========================
-
-def formato_usd(x, pos):
-    return f"${x:,.0f} USD"
-
-# =========================
-# GRÁFICOS
-# =========================
-
-def grafico_ingresos_por_mes():
-    if ventas.empty:
-        print("No hay datos para graficar.")
-        return
-    datos = ventas.groupby("Mes")["Ventas USD"].sum()
-    plt.figure(figsize=(10, 5))
-    plt.plot(datos.index, datos.values, marker="o")
-    plt.title("Ingresos Mensuales (USD)")
-    plt.xlabel("Mes")
-    plt.ylabel("Ingresos")
-    plt.gca().yaxis.set_major_formatter(ticker.FuncFormatter(formato_usd))
-    plt.grid(alpha=0.3)
-    plt.tight_layout()
-    plt.show()
-
-def grafico_ingresos_por_hora():
-    if ventas.empty:
-        print("No hay datos para graficar.")
-        return
-    datos = ventas.groupby("Hora")["Ventas USD"].sum()
-    plt.figure(figsize=(10, 5))
-    plt.bar(datos.index, datos.values)
-    plt.title("Ingresos por Hora del Día (USD)")
-    plt.xlabel("Hora")
-    plt.ylabel("Ingresos")
-    plt.gca().yaxis.set_major_formatter(ticker.FuncFormatter(formato_usd))
-    plt.grid(axis="y", alpha=0.3)
-    plt.tight_layout()
-    plt.show()
-
-def grafico_heatmap_hora_mes():
-    if ventas.empty:
-        print("No hay datos para graficar.")
-        return
-    pivot = ventas.pivot_table(index="Hora", columns="Mes", values="Ventas USD", aggfunc="sum")
-    plt.figure(figsize=(12,6))
-    sns.heatmap(pivot, cmap="YlGnBu", annot=False)
-    plt.title("Ventas por Hora y Mes (USD)")
-    plt.tight_layout()
-    plt.show()
-
-def grafico_producto_mas_vendido():
-    if ventas.empty:
-        print("No hay datos para graficar.")
-        return
-    datos = ventas.groupby("Producto")["Cantidad Pedida"].sum().sort_values(ascending=False).head(10)
-    plt.figure(figsize=(10, 6))
-    datos.plot(kind="barh")
-    plt.title("Top 10 Productos Más Vendidos")
-    plt.xlabel("Unidades")
-    plt.gca().invert_yaxis()
-    plt.grid(axis="x", alpha=0.3)
-    plt.tight_layout()
-    plt.show()
-
-# =========================
-# DASHBOARD TKINTER
-# =========================
-
-root = tk.Tk()
-root.title("Dashboard de Ventas")
-root.geometry("450x500")
-
-titulo = tk.Label(root, text="Dashboard de Ventas (USD)", font=("Segoe UI", 16, "bold"))
-titulo.pack(pady=15)
-
-style = ttk.Style()
-style.configure("TButton", padding=8)
-
-ttk.Button(root, text="Ingresos por Mes", command=grafico_ingresos_por_mes).pack(pady=5)
-ttk.Button(root, text="Ingresos por Hora", command=grafico_ingresos_por_hora).pack(pady=5)
-ttk.Button(root, text="Heatmap Hora-Mes", command=grafico_heatmap_hora_mes).pack(pady=5)
-ttk.Button(root, text="Top Productos", command=grafico_producto_mas_vendido).pack(pady=5)
-
-root.mainloop()
+print("Dashboard en http://127.0.0.1:8050/")
+app.run(debug=False)
