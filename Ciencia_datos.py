@@ -375,9 +375,19 @@ app.layout = dbc.Container([
         dbc.Col([
             dbc.Card([
                 dbc.CardHeader("📆 Ventas por Día"),
-                dbc.CardBody(dcc.Graph(id='graf-dias'))
+                dbc.CardBody(dcc.Graph(id='graf-dias', style={'height': '400px'}))
             ], className="shadow-sm")
         ], width=6),
+    ], className="mb-4"),
+    
+    # NUEVA FILA: Patrones por hora
+    dbc.Row([
+        dbc.Col([
+            dbc.Card([
+                dbc.CardHeader("⏰ Patrones por Hora (Evolución Mensual)"),
+                dbc.CardBody(dcc.Graph(id='graf-patrones-hora'))
+            ], className="shadow-sm")
+        ], width=12),
     ], className="mb-4"),
     
     # GRÁFICOS - FILA 3
@@ -407,6 +417,17 @@ app.layout = dbc.Container([
         ], width=12),
     ], className="mb-4"),
     
+    # NUEVA TABLA: PRODUCTO MÁS VENDIDO POR MES
+    dbc.Row([
+        dbc.Col([
+            dbc.Card([
+                dbc.CardHeader("🏆 PRODUCTO MÁS VENDIDO POR MES", 
+                              className="bg-secondary text-white"),
+                dbc.CardBody(id='tabla-productos-mes', style={'overflowX': 'auto'})
+            ], className="shadow-sm")
+        ], width=12),
+    ], className="mb-4"),
+    
     # RESUMEN EJECUTIVO
     dbc.Row([
         dbc.Col([
@@ -416,9 +437,9 @@ app.layout = dbc.Container([
                 dbc.CardBody(id='resumen')
             ], className="shadow-sm")
         ], width=12),
-    ]),
+    ], className="mb-4"),
     
-    # NUEVA SECCIÓN: EVENTOS ESPECIALES
+    # EVENTOS ESPECIALES
     dbc.Row([
         dbc.Col([
             dbc.Card([
@@ -495,10 +516,12 @@ def reset_filtros(n_clicks):
      Output('graf-ventas-mes', 'figure'),
      Output('graf-tendencia', 'figure'),
      Output('graf-heatmap', 'figure'),
+     Output('graf-patrones-hora', 'figure'),
      Output('graf-dias', 'figure'),
      Output('graf-productos', 'figure'),
      Output('graf-ciudades', 'figure'),
      Output('tabla-meses', 'children'),
+     Output('tabla-productos-mes', 'children'),
      Output('resumen', 'children'),
      Output('eventos-especiales', 'children')],
     [Input('ciudad', 'value'),
@@ -633,10 +656,8 @@ def update_dashboard(ciudad, estado, mes, dia, trimestre, categoria, rango_preci
         tendencias = html.P("Datos insuficientes para análisis de tendencias", className="text-center text-muted")
     
     # ========================================
-    # GRÁFICOS
+    # GRÁFICO 1: Ventas por Mes
     # ========================================
-    
-    # Gráfico 1: Ventas por Mes
     if not data.empty:
         df_mes = data.groupby('Mes')['Ingreso Total'].sum().reset_index()
         fig1 = px.bar(df_mes, x='Mes', y='Ingreso Total', 
@@ -647,9 +668,13 @@ def update_dashboard(ciudad, estado, mes, dia, trimestre, categoria, rango_preci
         fig1.update_layout(height=350, showlegend=False, 
                           yaxis_title="Ingresos ($)", xaxis_title="Mes")
     else:
-        fig1 = px.bar(title="Sin datos disponibles")
+        fig1 = go.Figure()
+        fig1.add_annotation(text="Sin datos disponibles", showarrow=False)
+        fig1.update_layout(height=350)
     
-    # Gráfico 2: Tendencia Diaria
+    # ========================================
+    # GRÁFICO 2: Tendencia Diaria
+    # ========================================
     if not data.empty:
         diario = data.groupby('Fecha')['Ingreso Total'].sum().reset_index()
         diario['Fecha'] = pd.to_datetime(diario['Fecha'])
@@ -668,59 +693,186 @@ def update_dashboard(ciudad, estado, mes, dia, trimestre, categoria, rango_preci
                           yaxis_title="Ingresos ($)", xaxis_title="Fecha")
     else:
         fig2 = go.Figure()
-    
-    # Gráfico 3: Heatmap
-    if not data.empty:
-        heat = data.groupby(['Hora', 'Día']).size().reset_index(name='Pedidos')
-        orden = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
-        heat['Día'] = pd.Categorical(heat['Día'], categories=orden, ordered=True)
-        heat = heat.sort_values(['Día', 'Hora'])
-        fig3 = px.density_heatmap(heat, x='Hora', y='Día', z='Pedidos', 
-                                 title='🔥 Mapa de Calor - Horas Pico',
-                                 color_continuous_scale='Viridis')
-        fig3.update_layout(height=350, yaxis_title="Día", xaxis_title="Hora")
-    else:
-        fig3 = px.density_heatmap(title="Sin datos disponibles")
-    
-    # Gráfico 4: Ventas por Día
-    if not data.empty:
-        dias = data.groupby(['Día', 'Día Semana'])['ID de Pedido'].nunique().reset_index(name='Pedidos')
-        dias = dias.sort_values('Día Semana')
-        colors = ['#3498db']*5 + ['#e74c3c']*2
-        fig4 = px.bar(dias, x='Día', y='Pedidos', 
-                     title='📆 Ventas por Día de la Semana',
-                     color='Día', color_discrete_sequence=colors, 
-                     text_auto=True)
-        fig4.update_traces(texttemplate='%{y:,}', textposition='outside')
-        fig4.update_layout(height=350, showlegend=False, yaxis_title="Pedidos")
-    else:
-        fig4 = px.bar(title="Sin datos disponibles")
-    
-    # Gráfico 5: Top Productos
-    if not data.empty:
-        top_prod = data.groupby('Producto')['Cantidad Pedida'].sum().nlargest(10).reset_index()
-        fig5 = px.bar(top_prod, x='Cantidad Pedida', y='Producto', 
-                     title='📦 Top 10 Productos más Vendidos',
-                     orientation='h', color='Cantidad Pedida', 
-                     color_continuous_scale='Greens', text_auto=True)
-        fig5.update_layout(height=350, yaxis_title="", xaxis_title="Unidades Vendidas")
-    else:
-        fig5 = px.bar(title="Sin datos disponibles")
-    
-    # Gráfico 6: Top Ciudades
-    if not data.empty:
-        top_ciud = data.groupby('Ciudad')['Ingreso Total'].sum().nlargest(10).reset_index()
-        fig6 = px.bar(top_ciud, x='Ingreso Total', y='Ciudad', 
-                     title='🏙️ Top 10 Ciudades por Ingresos',
-                     orientation='h', color='Ingreso Total', 
-                     color_continuous_scale='Reds', text_auto='.2s')
-        fig6.update_traces(texttemplate='$%{text:.2s}')
-        fig6.update_layout(height=350, yaxis_title="", xaxis_title="Ingresos ($)")
-    else:
-        fig6 = px.bar(title="Sin datos disponibles")
+        fig2.add_annotation(text="Sin datos disponibles", showarrow=False)
+        fig2.update_layout(height=350)
     
     # ========================================
-    # TABLA COMPARATIVA
+    # GRÁFICO 3: Mapa de Calor (Horas vs Días)
+    # ========================================
+    if not data.empty:
+        heat = data.groupby(['Hora', 'Día']).size().reset_index(name='Pedidos')
+        if len(heat) > 0:
+            orden = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
+            heat['Día'] = pd.Categorical(heat['Día'], categories=orden, ordered=True)
+            heat = heat.dropna(subset=['Día'])
+            heat = heat.sort_values(['Día', 'Hora'])
+            
+            fig3 = px.density_heatmap(heat, x='Hora', y='Día', z='Pedidos', 
+                                     title='🔥 Mapa de Calor - Horas Pico',
+                                     color_continuous_scale='Viridis')
+            fig3.update_layout(height=350, yaxis_title="Día", xaxis_title="Hora")
+        else:
+            fig3 = go.Figure()
+            fig3.add_annotation(text="Sin datos para heatmap", showarrow=False)
+            fig3.update_layout(height=350)
+    else:
+        fig3 = go.Figure()
+        fig3.add_annotation(text="Sin datos disponibles", showarrow=False)
+        fig3.update_layout(height=350)
+    
+    # ========================================
+    # GRÁFICO NUEVO: Patrones por hora a lo largo del año
+    # ========================================
+    if not data.empty:
+        # Crear tabla de contingencia: Hora vs Mes
+        patrones_hora = data.groupby(['Hora', 'Mes'])['ID de Pedido'].nunique().reset_index(name='Pedidos')
+        
+        if len(patrones_hora) > 0:
+            # Ordenar meses correctamente
+            orden_meses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+                          'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+            
+            # Filtrar y ordenar
+            patrones_hora = patrones_hora[patrones_hora['Mes'].isin(orden_meses)]
+            patrones_hora['Mes'] = pd.Categorical(patrones_hora['Mes'], categories=orden_meses, ordered=True)
+            patrones_hora = patrones_hora.dropna(subset=['Mes'])
+            patrones_hora = patrones_hora.sort_values(['Mes', 'Hora'])
+            
+            if len(patrones_hora) > 0:
+                # Crear heatmap de hora vs mes
+                fig_patrones = px.density_heatmap(
+                    patrones_hora, 
+                    x='Hora', 
+                    y='Mes', 
+                    z='Pedidos',
+                    title='⏰ Patrones de Ventas por Hora a lo largo del Año',
+                    color_continuous_scale='Viridis',
+                    labels={'Pedidos': 'Cantidad de Pedidos', 'Hora': 'Hora del Día', 'Mes': 'Mes'}
+                )
+                
+                # Línea vertical para marcar hora pico general
+                hora_pico_gral = data.groupby('Hora')['ID de Pedido'].nunique().idxmax()
+                fig_patrones.add_vline(x=hora_pico_gral, line_dash="dash", line_color="red",
+                                      annotation_text=f"Hora pico: {hora_pico_gral}:00", 
+                                      annotation_position="top")
+                
+                fig_patrones.update_layout(height=350)
+            else:
+                fig_patrones = go.Figure()
+                fig_patrones.add_annotation(text="Sin datos de patrones", showarrow=False)
+                fig_patrones.update_layout(height=350)
+        else:
+            fig_patrones = go.Figure()
+            fig_patrones.add_annotation(text="Sin datos para análisis", showarrow=False)
+            fig_patrones.update_layout(height=350)
+    else:
+        fig_patrones = go.Figure()
+        fig_patrones.add_annotation(text="Sin datos disponibles", showarrow=False)
+        fig_patrones.update_layout(height=350)
+    
+    # ========================================
+    # GRÁFICO 4: Ventas por Día (CORREGIDO - CON TOOLTIP MEJORADO)
+    # ========================================
+    if not data.empty:
+        dias = data.groupby(['Día', 'Día Semana'])['ID de Pedido'].nunique().reset_index(name='Pedidos')
+        # Agregar más métricas para el tooltip
+        dias_ingresos = data.groupby('Día').agg({
+            'Ingreso Total': 'sum',
+            'Cantidad Pedida': 'sum'
+        }).reset_index()
+        
+        dias = dias.merge(dias_ingresos, on='Día', how='left')
+        
+        if len(dias) > 0:
+            dias = dias.dropna(subset=['Día'])
+            dias = dias.sort_values('Día Semana')
+            colors = ['#3498db']*5 + ['#e74c3c']*2
+            
+            # Crear gráfico con customdata para tooltips
+            fig4 = go.Figure()
+            
+            for i, row in dias.iterrows():
+                fig4.add_trace(go.Bar(
+                    x=[row['Día']],
+                    y=[row['Pedidos']],
+                    name=row['Día'],
+                    marker_color=colors[i % len(colors)],
+                    text=f"{row['Pedidos']:,}",
+                    textposition='outside',
+                    customdata=[[
+                        f"${row['Ingreso Total']:,.0f}",
+                        f"{row['Cantidad Pedida']:,}",
+                        f"${row['Ingreso Total']/row['Pedidos']:,.2f}" if row['Pedidos'] > 0 else "$0"
+                    ]],
+                    hovertemplate='<b>%{x}</b><br>' +
+                                '📦 Pedidos: %{y:,}<br>' +
+                                '💰 Ingresos: %{customdata[0]}<br>' +
+                                '📊 Unidades: %{customdata[1]}<br>' +
+                                '🎫 Ticket Prom: %{customdata[2]}<br>' +
+                                '<extra></extra>'
+                ))
+            
+            fig4.update_layout(
+                title='📆 Ventas por Día de la Semana',
+                height=400,
+                showlegend=False,
+                yaxis_title="Cantidad de Pedidos",
+                xaxis_title="Día",
+                margin=dict(l=50, r=30, t=50, b=50),
+                xaxis_tickangle=-45
+            )
+        else:
+            fig4 = go.Figure()
+            fig4.add_annotation(text="Sin datos", showarrow=False)
+            fig4.update_layout(height=400)
+    else:
+        fig4 = go.Figure()
+        fig4.add_annotation(text="Sin datos disponibles", showarrow=False)
+        fig4.update_layout(height=400)
+    
+    # ========================================
+    # GRÁFICO 5: Top 10 Productos
+    # ========================================
+    if not data.empty:
+        top_prod = data.groupby('Producto')['Cantidad Pedida'].sum().nlargest(10).reset_index()
+        if len(top_prod) > 0:
+            fig5 = px.bar(top_prod, x='Cantidad Pedida', y='Producto', 
+                         title='📦 Top 10 Productos más Vendidos',
+                         orientation='h', color='Cantidad Pedida', 
+                         color_continuous_scale='Greens', text_auto=True)
+            fig5.update_layout(height=350, yaxis_title="", xaxis_title="Unidades Vendidas")
+        else:
+            fig5 = go.Figure()
+            fig5.add_annotation(text="Sin datos", showarrow=False)
+            fig5.update_layout(height=350)
+    else:
+        fig5 = go.Figure()
+        fig5.add_annotation(text="Sin datos disponibles", showarrow=False)
+        fig5.update_layout(height=350)
+    
+    # ========================================
+    # GRÁFICO 6: Top 10 Ciudades
+    # ========================================
+    if not data.empty:
+        top_ciud = data.groupby('Ciudad')['Ingreso Total'].sum().nlargest(10).reset_index()
+        if len(top_ciud) > 0:
+            fig6 = px.bar(top_ciud, x='Ingreso Total', y='Ciudad', 
+                         title='🏙️ Top 10 Ciudades por Ingresos',
+                         orientation='h', color='Ingreso Total', 
+                         color_continuous_scale='Reds', text_auto='.2s')
+            fig6.update_traces(texttemplate='$%{text:.2s}')
+            fig6.update_layout(height=350, yaxis_title="", xaxis_title="Ingresos ($)")
+        else:
+            fig6 = go.Figure()
+            fig6.add_annotation(text="Sin datos", showarrow=False)
+            fig6.update_layout(height=350)
+    else:
+        fig6 = go.Figure()
+        fig6.add_annotation(text="Sin datos disponibles", showarrow=False)
+        fig6.update_layout(height=350)
+    
+    # ========================================
+    # TABLA COMPARATIVA POR MES
     # ========================================
     if not data.empty:
         tabla_df = data.groupby('Mes').agg({
@@ -729,57 +881,110 @@ def update_dashboard(ciudad, estado, mes, dia, trimestre, categoria, rango_preci
             'Cantidad Pedida': 'sum'
         }).reset_index()
         
-        # Calcular variaciones
-        tabla_df['Variación %'] = tabla_df['Ingreso Total'].pct_change() * 100
-        tabla_df['Variación %'] = tabla_df['Variación %'].fillna(0).round(1)
-        
-        tabla_df['Ingreso Total'] = tabla_df['Ingreso Total'].apply(lambda x: f'${x:,.0f}')
-        tabla_df['ID de Pedido'] = tabla_df['ID de Pedido'].apply(lambda x: f'{x:,}')
-        tabla_df['Cantidad Pedida'] = tabla_df['Cantidad Pedida'].apply(lambda x: f'{x:,}')
-        tabla_df['Variación %'] = tabla_df['Variación %'].apply(lambda x: f'{x:+.1f}%')
-        tabla_df.columns = ['Mes', 'Ingresos', 'Pedidos', 'Unidades', 'Variación']
-        
-        tabla_meses = dbc.Table.from_dataframe(
-            tabla_df, striped=True, bordered=True, hover=True, size='sm'
-        )
+        if len(tabla_df) > 0:
+            # Calcular variaciones
+            tabla_df['Variación %'] = tabla_df['Ingreso Total'].pct_change() * 100
+            tabla_df['Variación %'] = tabla_df['Variación %'].fillna(0).round(1)
+            
+            tabla_df['Ingreso Total'] = tabla_df['Ingreso Total'].apply(lambda x: f'${x:,.0f}')
+            tabla_df['ID de Pedido'] = tabla_df['ID de Pedido'].apply(lambda x: f'{x:,}')
+            tabla_df['Cantidad Pedida'] = tabla_df['Cantidad Pedida'].apply(lambda x: f'{x:,}')
+            tabla_df['Variación %'] = tabla_df['Variación %'].apply(lambda x: f'{x:+.1f}%')
+            tabla_df.columns = ['Mes', 'Ingresos', 'Pedidos', 'Unidades', 'Variación']
+            
+            tabla_meses = dbc.Table.from_dataframe(
+                tabla_df, striped=True, bordered=True, hover=True, size='sm'
+            )
+        else:
+            tabla_meses = html.P("Sin datos para la tabla", className="text-center text-muted")
     else:
         tabla_meses = html.P("Sin datos para la tabla comparativa", className="text-center text-muted")
+    
+    # ========================================
+    # NUEVA TABLA: PRODUCTO MÁS VENDIDO POR MES
+    # ========================================
+    if not data.empty:
+        # Producto más vendido en general
+        producto_top_general = data.groupby('Producto')['Cantidad Pedida'].sum().idxmax()
+        
+        # Producto más vendido por mes
+        productos_por_mes = data.groupby(['Mes', 'Producto'])['Cantidad Pedida'].sum().reset_index()
+        idx_max = productos_por_mes.groupby('Mes')['Cantidad Pedida'].idxmax()
+        top_productos_mes = productos_por_mes.loc[idx_max].reset_index(drop=True)
+        
+        # Ordenar por mes
+        orden_meses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+                      'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre']
+        
+        if len(top_productos_mes) > 0:
+            top_productos_mes['Mes'] = pd.Categorical(top_productos_mes['Mes'], categories=orden_meses, ordered=True)
+            top_productos_mes = top_productos_mes.dropna(subset=['Mes'])
+            top_productos_mes = top_productos_mes.sort_values('Mes')
+            
+            # Crear tabla HTML
+            rows = []
+            for _, row in top_productos_mes.iterrows():
+                rows.append(html.Tr([
+                    html.Td(row['Mes'], className="fw-bold"),
+                    html.Td(row['Producto'][:40] + '...' if len(row['Producto']) > 40 else row['Producto']),
+                    html.Td(f"{row['Cantidad Pedida']:,.0f}", className="text-end")
+                ]))
+            
+            tabla_top_productos = dbc.Table(
+                [html.Thead(html.Tr([html.Th("Mes"), html.Th("Producto Más Vendido"), html.Th("Cantidad")])),
+                 html.Tbody(rows)],
+                striped=True, bordered=True, hover=True, size='sm'
+            )
+            
+            # Agregar producto top general
+            tabla_top_productos = html.Div([
+                tabla_top_productos,
+                html.P(f"🏆 Producto más vendido en GENERAL: {producto_top_general}", 
+                      className="mt-3 fw-bold text-success")
+            ])
+        else:
+            tabla_top_productos = html.P("No hay datos de productos por mes", className="text-center text-muted")
+    else:
+        tabla_top_productos = html.P("Sin datos para análisis", className="text-center text-muted")
     
     # ========================================
     # RESUMEN EJECUTIVO
     # ========================================
     if len(data) > 0:
-        prod_top = data.groupby('Producto')['Cantidad Pedida'].sum().idxmax()
-        ciudad_top = data.groupby('Ciudad')['Ingreso Total'].sum().idxmax()
-        estado_top = data.groupby('Estado Nombre')['Ingreso Total'].sum().idxmax()
-        cat_top = data.groupby('Categoría')['Ingreso Total'].sum().idxmax()
-        
-        resumen = dbc.Row([
-            dbc.Col(dbc.Card([
-                dbc.CardBody([
-                    html.H6("🏆 Producto Estrella", className="text-center"),
-                    html.P(prod_top, className="text-center text-success fw-bold"),
-                ])
-            ], className="h-100 shadow-sm border-success"), width=3),
-            dbc.Col(dbc.Card([
-                dbc.CardBody([
-                    html.H6("🏙️ Ciudad Top", className="text-center"),
-                    html.P(ciudad_top, className="text-center text-primary fw-bold"),
-                ])
-            ], className="h-100 shadow-sm border-primary"), width=3),
-            dbc.Col(dbc.Card([
-                dbc.CardBody([
-                    html.H6("🗺️ Estado Top", className="text-center"),
-                    html.P(estado_top, className="text-center text-info fw-bold"),
-                ])
-            ], className="h-100 shadow-sm border-info"), width=3),
-            dbc.Col(dbc.Card([
-                dbc.CardBody([
-                    html.H6("📦 Categoría Top", className="text-center"),
-                    html.P(cat_top, className="text-center text-warning fw-bold"),
-                ])
-            ], className="h-100 shadow-sm border-warning"), width=3),
-        ])
+        try:
+            prod_top = data.groupby('Producto')['Cantidad Pedida'].sum().idxmax()
+            ciudad_top = data.groupby('Ciudad')['Ingreso Total'].sum().idxmax()
+            estado_top = data.groupby('Estado Nombre')['Ingreso Total'].sum().idxmax()
+            cat_top = data.groupby('Categoría')['Ingreso Total'].sum().idxmax()
+            
+            resumen = dbc.Row([
+                dbc.Col(dbc.Card([
+                    dbc.CardBody([
+                        html.H6("🏆 Producto Estrella", className="text-center"),
+                        html.P(prod_top if prod_top else "N/A", className="text-center text-success fw-bold"),
+                    ])
+                ], className="h-100 shadow-sm border-success"), width=3),
+                dbc.Col(dbc.Card([
+                    dbc.CardBody([
+                        html.H6("🏙️ Ciudad Top", className="text-center"),
+                        html.P(ciudad_top if ciudad_top else "N/A", className="text-center text-primary fw-bold"),
+                    ])
+                ], className="h-100 shadow-sm border-primary"), width=3),
+                dbc.Col(dbc.Card([
+                    dbc.CardBody([
+                        html.H6("🗺️ Estado Top", className="text-center"),
+                        html.P(estado_top if estado_top else "N/A", className="text-center text-info fw-bold"),
+                    ])
+                ], className="h-100 shadow-sm border-info"), width=3),
+                dbc.Col(dbc.Card([
+                    dbc.CardBody([
+                        html.H6("📦 Categoría Top", className="text-center"),
+                        html.P(cat_top if cat_top else "N/A", className="text-center text-warning fw-bold"),
+                    ])
+                ], className="h-100 shadow-sm border-warning"), width=3),
+            ])
+        except:
+            resumen = html.P("Error al generar resumen", className="text-center text-muted")
     else:
         resumen = html.P("Datos insuficientes para resumen ejecutivo", className="text-center text-muted")
     
@@ -787,69 +992,53 @@ def update_dashboard(ciudad, estado, mes, dia, trimestre, categoria, rango_preci
     # ANÁLISIS DE EVENTOS ESPECIALES
     # ========================================
     if len(data) > 0:
-        # Crear columna de eventos
-        data_con_eventos = data.copy()
-        data_con_eventos['Evento'] = data_con_eventos['Fecha Pedido'].apply(identificar_evento)
-        
-        # Análisis por evento
-        ventas_por_evento = data_con_eventos.groupby('Evento').agg({
-            'Ingreso Total': ['sum', 'mean'],
-            'ID de Pedido': 'nunique',
-            'Cantidad Pedida': 'sum'
-        }).round(0)
-        
-        ventas_por_evento.columns = ['Ingresos Totales', 'Ticket Promedio', 'Pedidos', 'Unidades']
-        ventas_por_evento = ventas_por_evento.reset_index()
-        ventas_por_evento = ventas_por_evento[ventas_por_evento['Evento'] != 'Día Normal']
-        
-        if not ventas_por_evento.empty:
-            # Calcular promedio diario normal para comparación
-            ventas_normales = data_con_eventos[data_con_eventos['Evento'] == 'Día Normal']['Ingreso Total'].mean()
+        try:
+            # Crear columna de eventos
+            data_con_eventos = data.copy()
+            data_con_eventos['Evento'] = data_con_eventos['Fecha Pedido'].apply(identificar_evento)
             
-            # Crear tarjetas para cada evento
-            tarjetas_eventos = []
-            for _, row in ventas_por_evento.iterrows():
-                variacion = ((row['Ingresos Totales'] / ventas_normales) - 1) * 100 if ventas_normales > 0 else 0
-                color = "success" if variacion > 0 else "danger" if variacion < 0 else "warning"
+            # Análisis por evento
+            ventas_por_evento = data_con_eventos.groupby('Evento').agg({
+                'Ingreso Total': 'sum',
+                'ID de Pedido': 'nunique'
+            }).reset_index()
+            
+            ventas_por_evento = ventas_por_evento[ventas_por_evento['Evento'] != 'Día Normal']
+            
+            if not ventas_por_evento.empty:
+                # Calcular promedio diario normal
+                ventas_normales = data_con_eventos[data_con_eventos['Evento'] == 'Día Normal']['Ingreso Total'].mean()
+                ventas_normales = ventas_normales if not pd.isna(ventas_normales) else 1
                 
-                tarjetas_eventos.append(
-                    dbc.Col(dbc.Card([
-                        dbc.CardBody([
-                            html.H6(row['Evento'], className="text-center fw-bold"),
-                            html.H4(f"${row['Ingresos Totales']:,.0f}", 
-                                   className=f"text-center text-{color}"),
-                            html.P(f"{variacion:+.1f}% vs día normal", 
-                                  className="text-center small"),
-                            html.P(f"{row['Pedidos']:,.0f} pedidos", 
-                                  className="text-center small text-muted"),
-                        ])
-                    ], className=f"border-{color} border-2 shadow-sm"), width=3)
-                )
-            
-            # Gráfico de comparación de eventos
-            fig_eventos = px.bar(ventas_por_evento.sort_values('Ingresos Totales', ascending=False),
-                                x='Evento', y='Ingresos Totales',
-                                title='💰 Ingresos en Días Especiales',
-                                color='Ingresos Totales',
-                                color_continuous_scale='RdYlGn',
-                                text_auto='.2s')
-            fig_eventos.update_traces(texttemplate='$%{text:.2s}')
-            fig_eventos.update_layout(height=350, xaxis_tickangle=-45)
-            
-            eventos_content = dbc.Container([
-                dbc.Row(tarjetas_eventos, className="mb-3"),
-                dbc.Row([
-                    dbc.Col(dcc.Graph(figure=fig_eventos), width=12)
-                ])
-            ])
-        else:
-            eventos_content = html.P("No hay días especiales en el período seleccionado", 
-                                    className="text-center text-muted")
+                # Crear tarjetas
+                tarjetas = []
+                for _, row in ventas_por_evento.iterrows():
+                    variacion = ((row['Ingreso Total'] / ventas_normales) - 1) * 100
+                    color = "success" if variacion > 0 else "danger" if variacion < 0 else "warning"
+                    
+                    tarjetas.append(
+                        dbc.Col(dbc.Card([
+                            dbc.CardBody([
+                                html.H6(row['Evento'], className="text-center fw-bold"),
+                                html.H5(f"${row['Ingreso Total']:,.0f}", className=f"text-center text-{color}"),
+                                html.P(f"{variacion:+.1f}% vs día normal", className="text-center small"),
+                                html.P(f"{row['ID de Pedido']} pedidos", className="text-center small text-muted"),
+                            ])
+                        ], className=f"border-{color} border-2 shadow-sm"), width=3)
+                    )
+                
+                eventos_content = dbc.Row(tarjetas, className="mb-3")
+            else:
+                eventos_content = html.P("No hay eventos especiales en el período seleccionado", 
+                                        className="text-center text-muted")
+        except:
+            eventos_content = html.P("Error al analizar eventos", className="text-center text-muted")
     else:
         eventos_content = html.P("Datos insuficientes para análisis de eventos", 
                                 className="text-center text-muted")
     
-    return kpis, subtitulo, tendencias, fig1, fig2, fig3, fig4, fig5, fig6, tabla_meses, resumen, eventos_content
+    return (kpis, subtitulo, tendencias, fig1, fig2, fig3, fig_patrones, 
+            fig4, fig5, fig6, tabla_meses, tabla_top_productos, resumen, eventos_content)
 
 # ============================================
 # 8. EJECUTAR DASHBOARD
