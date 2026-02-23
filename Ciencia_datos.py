@@ -3,10 +3,16 @@
 
 """
 ================================================================================
-                    PANEL DE VENTAS 2019 - VERSIÓN DEFINITIVA
+                    PANEL DE VENTAS 2019 - VERSIÓN FINAL
 ================================================================================
 Desarrollado por: Paola Dueña - Data Analyst
-Versión: 38.0.0 - EVENTOS INTERACTIVOS COMPLETOS
+Versión: 50.1.0 - GRÁFICOS CORREGIDOS + MEJORAS
+================================================================================
+Mejoras implementadas:
+    • Consistencia en filtros temporales
+    • Nuevo gráfico de distribución en comparador
+    • Análisis de variación mensual por estado
+    • Documentación mejorada
 ================================================================================
 """
 
@@ -16,7 +22,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 import dash
-from dash import Dash, dcc, html, Input, Output, no_update, callback, State, ALL
+from dash import Dash, dcc, html, Input, Output, callback, State, no_update
 import dash_bootstrap_components as dbc
 import glob
 import os
@@ -26,16 +32,14 @@ from datetime import datetime
 from collections import Counter
 from itertools import combinations
 import sys
-import base64
-import io
 import warnings
 warnings.filterwarnings('ignore')
 
 print("="*80)
-print("PANEL DE VENTAS 2019 - VERSIÓN DEFINITIVA".center(80))
+print("PANEL DE VENTAS 2019 - VERSIÓN FINAL".center(80))
 print("="*80)
 print("Desarrollado por: Paola Dueña - Data Analyst".center(80))
-print("Versión: 38.0.0 - EVENTOS INTERACTIVOS".center(80))
+print("Versión: 50.1.0 - CON MEJORAS".center(80))
 print("="*80)
 
 # ============================================
@@ -68,7 +72,7 @@ for archivo in archivos:
     print(f"      • Cargando: {nombre}")
     
     try:
-        df_temp = pd.read_csv(archivo, dtype=str)
+        df_temp = pd.read_csv(archivo)
         df_temp = df_temp[df_temp['ID de Pedido'] != 'Order ID']
         df_temp = df_temp.dropna(subset=['ID de Pedido'])
         df_temp['Mes Archivo'] = mes
@@ -211,36 +215,7 @@ df['Estado Nombre'] = df['Estado'].map(estados_usa).fillna(df['Estado'])
 df['Estado Codigo'] = df['Estado Nombre'].map(codigos_estados).fillna('NA')
 
 # ============================================
-# 6. KPIs GLOBALES
-# ============================================
-print("   • Calculando KPIs...")
-
-TOTAL_INGRESOS = df['Ingreso Total'].sum()
-TOTAL_PEDIDOS = df['ID de Pedido'].nunique()
-TOTAL_UNIDADES = df['Cantidad Pedida'].sum()
-TICKET_PROMEDIO = TOTAL_INGRESOS / TOTAL_PEDIDOS if TOTAL_PEDIDOS > 0 else 0
-PRODUCTO_TOP = df.groupby('Producto')['Cantidad Pedida'].sum().idxmax() if not df.empty else "N/A"
-CIUDAD_TOP = df.groupby('Ciudad')['Ingreso Total'].sum().idxmax() if not df.empty else "N/A"
-ESTADO_TOP = df.groupby('Estado Nombre')['Ingreso Total'].sum().idxmax() if not df.empty else "N/A"
-HORA_PICO = df.groupby('Hora')['ID de Pedido'].nunique().idxmax() if not df.empty else 0
-DIA_PICO = df.groupby('Día Semana Nombre')['ID de Pedido'].nunique().idxmax() if not df.empty else "N/A"
-
-# Crecimiento anual
-ventas_por_mes = df.groupby('Mes Num')['Ingreso Total'].sum()
-if len(ventas_por_mes) > 1:
-    CRECIMIENTO_ANUAL = ((ventas_por_mes.iloc[-1] - ventas_por_mes.iloc[0]) / ventas_por_mes.iloc[0] * 100)
-else:
-    CRECIMIENTO_ANUAL = 0
-
-print(f"\n📊 RESUMEN DE DATOS:")
-print(f"   • {len(df):,} registros válidos")
-print(f"   • {df['Ciudad'].nunique()} ciudades | {df['Estado Nombre'].nunique()} estados")
-print(f"   • Período: {df['Fecha'].min()} a {df['Fecha'].max()}")
-print(f"   • Ingresos totales: ${TOTAL_INGRESOS:,.0f}")
-print(f"   • Crecimiento: {CRECIMIENTO_ANUAL:+.1f}%")
-
-# ============================================
-# 7. EVENTOS ESPECIALES
+# 6. EVENTOS ESPECIALES
 # ============================================
 print("\n🎉 Configurando eventos especiales...")
 
@@ -268,10 +243,62 @@ def identificar_evento(fecha):
             return evento
     return 'Normal'
 
+print("   • Identificando eventos en los datos...")
+df['Evento'] = df['Fecha Pedido'].apply(identificar_evento)
+
+# Ver qué eventos tienen datos
+eventos_con_datos = []
+for evento in eventos.keys():
+    count = len(df[df['Evento'] == evento])
+    if count > 0:
+        eventos_con_datos.append(evento)
+        print(f"      ✅ {evento}: {count:,.0f} registros")
+
+print(f"   • Total eventos con datos: {len(eventos_con_datos)}")
+
+# ============================================
+# 7. KPIs GLOBALES
+# ============================================
+print("\n📊 CALCULANDO KPIs GLOBALES...")
+
+TOTAL_INGRESOS = df['Ingreso Total'].sum()
+TOTAL_PEDIDOS = df['ID de Pedido'].nunique()
+TOTAL_UNIDADES = df['Cantidad Pedida'].sum()
+TICKET_PROMEDIO = TOTAL_INGRESOS / TOTAL_PEDIDOS if TOTAL_PEDIDOS > 0 else 0
+PRODUCTO_TOP = df.groupby('Producto')['Cantidad Pedida'].sum().idxmax() if not df.empty else "N/A"
+CIUDAD_TOP = df.groupby('Ciudad')['Ingreso Total'].sum().idxmax() if not df.empty else "N/A"
+ESTADO_TOP = df.groupby('Estado Nombre')['Ingreso Total'].sum().idxmax() if not df.empty else "N/A"
+HORA_PICO = df.groupby('Hora')['ID de Pedido'].nunique().idxmax() if not df.empty else 0
+DIA_PICO = df.groupby('Día Semana Nombre')['ID de Pedido'].nunique().idxmax() if not df.empty else "N/A"
+
+# Crecimiento anual
+ventas_por_mes = df.groupby('Mes Num')['Ingreso Total'].sum()
+if len(ventas_por_mes) > 1:
+    CRECIMIENTO_ANUAL = ((ventas_por_mes.iloc[-1] - ventas_por_mes.iloc[0]) / ventas_por_mes.iloc[0] * 100)
+else:
+    CRECIMIENTO_ANUAL = 0
+
+print(f"\n📊 RESUMEN DE DATOS:")
+print(f"   • {len(df):,} registros válidos")
+print(f"   • {df['Ciudad'].nunique()} ciudades | {df['Estado Nombre'].nunique()} estados")
+print(f"   • Período: {df['Fecha'].min()} a {df['Fecha'].max()}")
+print(f"   • Ingresos totales: ${TOTAL_INGRESOS:,.0f}")
+print(f"   • Crecimiento: {CRECIMIENTO_ANUAL:+.1f}%")
+
 # ============================================
 # 8. FUNCIÓN PRODUCTO ESTRELLA
 # ============================================
 def analizar_producto_estrella(data, filtro_temporal):
+    """
+    Analiza el producto más vendido en un conjunto de datos filtrado.
+    
+    Parámetros:
+        data (DataFrame): Datos filtrados
+        filtro_temporal (str): Descripción del filtro aplicado
+    
+    Retorna:
+        dict: Información detallada del producto estrella o None si no hay datos
+    """
     if data.empty or len(data) < 10:
         return None
     
@@ -304,37 +331,35 @@ def analizar_producto_estrella(data, filtro_temporal):
         # Análisis de ubicación
         ciudades_top_prod = datos_producto.groupby('Ciudad')['Cantidad Pedida'].sum().nlargest(3).index.tolist()
         
-        # Generar insights SIMPLES
+        # Generar insights
         insights = []
         
-        # Insight de participación
         if share_producto > 20:
-            insights.append(f"🔥 Participación: {share_producto:.1f}% de todas las ventas (DOMINANTE)")
+            insights.append(f"🔥 DOMINANTE: {share_producto:.1f}% de participación")
         elif share_producto > 10:
-            insights.append(f"📊 Participación: {share_producto:.1f}% de las ventas (SIGNIFICATIVO)")
+            insights.append(f"📊 SIGNIFICATIVO: {share_producto:.1f}% de participación")
         else:
-            insights.append(f"📈 Participación: {share_producto:.1f}% de las ventas (NICHO)")
+            insights.append(f"📈 NICHO: {share_producto:.1f}% de participación")
         
-        # Insight de precio
         if comparacion_precio > 20:
-            insights.append(f"💎 Precio: ${producto_top['Precio Unitario']:.2f} ({comparacion_precio:+.1f}% más caro que el promedio) - PREMIUM")
+            insights.append(f"💎 PREMIUM: ${producto_top['Precio Unitario']:.2f} ({comparacion_precio:+.1f}%)")
         elif comparacion_precio < -20:
-            insights.append(f"💰 Precio: ${producto_top['Precio Unitario']:.2f} ({comparacion_precio:+.1f}% más barato que el promedio) - ECONÓMICO")
+            insights.append(f"💰 ECONÓMICO: ${producto_top['Precio Unitario']:.2f} ({comparacion_precio:+.1f}%)")
         else:
-            insights.append(f"⚖️ Precio: ${producto_top['Precio Unitario']:.2f} (similar al promedio) - COMPETITIVO")
+            insights.append(f"⚖️ COMPETITIVO: ${producto_top['Precio Unitario']:.2f}")
         
-        # Insight de volumen
         if producto_top['Cantidad Pedida'] > 1000:
-            insights.append(f"📦 Volumen: {producto_top['Cantidad Pedida']:,.0f} unidades (ALTO)")
+            insights.append(f"📦 ALTO VOLUMEN: {producto_top['Cantidad Pedida']:,.0f} unidades")
         elif producto_top['Cantidad Pedida'] > 500:
-            insights.append(f"📦 Volumen: {producto_top['Cantidad Pedida']:,.0f} unidades (MEDIO)")
+            insights.append(f"📦 VOLUMEN MEDIO: {producto_top['Cantidad Pedida']:,.0f} unidades")
         else:
-            insights.append(f"📦 Volumen: {producto_top['Cantidad Pedida']:,.0f} unidades (BAJO)")
+            insights.append(f"📦 BAJO VOLUMEN: {producto_top['Cantidad Pedida']:,.0f} unidades")
         
         # Factores de éxito
         factores_exito = [
             f"📅 Pico de ventas: {mes_pico}",
             f"📍 Principales ciudades: {', '.join(ciudades_top_prod[:2])}",
+            f"💵 Precio {('competitivo' if -20 < comparacion_precio < 20 else 'premium' if comparacion_precio > 20 else 'económico')}"
         ]
         
         return {
@@ -356,50 +381,18 @@ def analizar_producto_estrella(data, filtro_temporal):
         return None
 
 # ============================================
-# 9. TABLA EXPLICATIVA SIMPLIFICADA
-# ============================================
-tabla_explicativa = dbc.Card([
-    dbc.CardHeader("📚 ¿CÓMO INTERPRETAR ESTOS DATOS?", className="bg-info text-white fw-bold"),
-    dbc.CardBody([
-        dbc.Row([
-            dbc.Col([
-                html.H5("🔍 Participación:", className="text-primary"),
-                html.Ul([
-                    html.Li("🔥 DOMINANTE: Más del 20% de las ventas"),
-                    html.Li("📊 SIGNIFICATIVO: Entre 10% y 20% de las ventas"),
-                    html.Li("📈 NICHO: Menos del 10% de las ventas"),
-                ])
-            ], width=4),
-            dbc.Col([
-                html.H5("💰 Precio:", className="text-success"),
-                html.Ul([
-                    html.Li("💎 PREMIUM: +20% más caro que el promedio"),
-                    html.Li("⚖️ COMPETITIVO: Precio similar al promedio"),
-                    html.Li("💰 ECONÓMICO: -20% más barato que el promedio"),
-                ])
-            ], width=4),
-            dbc.Col([
-                html.H5("📦 Volumen:", className="text-warning"),
-                html.Ul([
-                    html.Li("📦 ALTO: Más de 1000 unidades"),
-                    html.Li("📦 MEDIO: Entre 500 y 1000 unidades"),
-                    html.Li("📦 BAJO: Menos de 500 unidades"),
-                ])
-            ], width=4),
-        ]),
-        html.Hr(),
-        html.P([
-            "💡 ", html.Strong("Ejemplo: "),
-            "'🔥 Participación: 25.3% de las ventas (DOMINANTE)' significa que ",
-            "este producto representa el 25.3% de todas las unidades vendidas."
-        ], className="text-muted small")
-    ])
-], className="shadow-sm mb-3")
-
-# ============================================
-# 10. FUNCIÓN PARA PRODUCTOS COMPLEMENTARIOS
+# 9. FUNCIÓN PARA PRODUCTOS COMPLEMENTARIOS
 # ============================================
 def analizar_productos_complementarios(data):
+    """
+    Analiza qué productos se compran juntos con frecuencia.
+    
+    Parámetros:
+        data (DataFrame): Datos de ventas
+    
+    Retorna:
+        list: Top 5 pares de productos complementarios
+    """
     if data.empty or len(data) < 100:
         return []
     
@@ -422,7 +415,7 @@ def analizar_productos_complementarios(data):
         return []
 
 # ============================================
-# 11. FUNCIÓN PARA GENERAR INFORMES
+# 10. FUNCIÓN PARA GENERAR INFORMES
 # ============================================
 def generar_informe_html(titulo, data, tablas=None):
     """Genera un informe HTML para exportar"""
@@ -492,7 +485,7 @@ def generar_informe_html(titulo, data, tablas=None):
     return html_content
 
 # ============================================
-# 12. CONFIGURACIÓN DASHBOARD
+# 11. CONFIGURACIÓN DASHBOARD
 # ============================================
 print("\n🚀 Inicializando dashboard...")
 
@@ -507,15 +500,16 @@ categorias_list = ['Todas'] + sorted(df['Categoría'].unique())
 rangos_list = ['Todos'] + ['Económico', 'Medio', 'Premium', 'Alta Gama', 'Lujo']
 dias_list = ['Todos'] + ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
 
+# MEJORA: Consistencia en filtros temporales - mismos valores que en el callback
 filtros_temporales = [
+    {'label': '🌐 General', 'value': 'General'},
     {'label': '📅 Por Mes', 'value': 'Mes'},
     {'label': '📆 Por Semana', 'value': 'Semana'},
-    {'label': '📊 Por Día', 'value': 'Día'},
-    {'label': '🌐 General', 'value': 'General'}
+    {'label': '📊 Por Día', 'value': 'Día'}
 ]
 
 # ============================================
-# 13. LAYOUT PRINCIPAL
+# 12. LAYOUT PRINCIPAL
 # ============================================
 app.layout = dbc.Container([
     
@@ -527,7 +521,7 @@ app.layout = dbc.Container([
                 html.H5("Análisis Completo de Ventas", className="text-center text-white-50"),
                 html.Hr(className="bg-white opacity-25"),
                 html.P(id='subtitulo', className="text-center text-white small mb-0"),
-            ], className="p-4 bg-gradient bg-primary rounded-3")
+            ], className="p-4 bg-primary rounded-3")
         ], width=12)
     ], className="mb-4"),
     
@@ -623,6 +617,14 @@ app.layout = dbc.Container([
                 dbc.Col(dbc.Card([dbc.CardHeader("🗺️ Mapa de Estados"), dbc.CardBody(dcc.Graph(id='mapa-estados'))]), width=6)
             ], className="mb-4"),
             
+            # MEJORA: Nuevo gráfico de variación mensual por estado
+            dbc.Row([
+                dbc.Col(dbc.Card([
+                    dbc.CardHeader("📊 Variación Mensual por Estado (Top 5)"), 
+                    dbc.CardBody(dcc.Graph(id='graf-estados-mensual'))
+                ], className="shadow-sm"), width=12)
+            ], className="mb-4"),
+            
             dbc.Row([
                 dbc.Col(dbc.Card([dbc.CardHeader("🎯 RESUMEN EJECUTIVO", className="bg-warning text-dark"), dbc.CardBody(id='resumen')]), width=12)
             ]),
@@ -671,7 +673,7 @@ app.layout = dbc.Container([
             
             dbc.Row([
                 dbc.Col(dbc.Card([dbc.CardHeader("📈 Tendencia Comparativa"), dbc.CardBody(dcc.Graph(id='graf-comp-tend'))]), width=8),
-                dbc.Col(dbc.Card([dbc.CardHeader("📊 Distribución por Mes"), dbc.CardBody(dcc.Graph(id='graf-comp-dist'))]), width=4)
+                dbc.Col(dbc.Card([dbc.CardHeader("📊 Distribución por Hora"), dbc.CardBody(dcc.Graph(id='graf-comp-dist'))]), width=4)
             ], className="mb-4"),
             
             dbc.Row([
@@ -682,13 +684,13 @@ app.layout = dbc.Container([
         ], label="📅 COMPARADOR"),
         
         # ========================================
-        # PESTAÑA 3: PRODUCTO ESTRELLA INTELIGENTE
+        # PESTAÑA 3: PRODUCTO ESTRELLA
         # ========================================
         dbc.Tab([
             dbc.Row([
                 dbc.Col([
                     dbc.Card([
-                        dbc.CardHeader("🎯 PRODUCTO ESTRELLA INTELIGENTE", className="bg-warning text-dark fw-bold"),
+                        dbc.CardHeader("🏆 PRODUCTO ESTRELLA", className="bg-warning text-dark fw-bold"),
                         dbc.CardBody([
                             dbc.Row([
                                 dbc.Col([
@@ -704,21 +706,15 @@ app.layout = dbc.Container([
                             ]),
                             html.Hr(),
                             html.Div(id='prod-container'),
-                            
-                            # TABLA EXPLICATIVA
                             html.Hr(),
-                            tabla_explicativa
+                            html.Div(id='factores-prod')
                         ])
                     ], className="shadow-sm")
                 ], width=12)
             ], className="mb-4"),
             
             dbc.Row([
-                dbc.Col(dbc.Card([dbc.CardHeader(id='titulo-factores', className="bg-info text-white"), dbc.CardBody(id='factores-prod')]), width=12)
-            ], className="mb-4"),
-            
-            dbc.Row([
-                dbc.Col(dbc.Card([dbc.CardHeader("🏆 Producto Más Vendido por Mes", className="bg-secondary text-white"), dbc.CardBody(id='tabla-prod-mes')]), width=12)
+                dbc.Col(dbc.Card([dbc.CardHeader("🏆 Producto por Mes"), dbc.CardBody(id='tabla-prod-mes')]), width=12)
             ]),
             
             dcc.Download(id="download-producto")
@@ -731,8 +727,8 @@ app.layout = dbc.Container([
             dbc.Row([
                 dbc.Col([
                     dbc.Card([
-                        dbc.CardHeader("⏰ ANÁLISIS DETALLADO DE HORAS", className="bg-secondary text-white fw-bold"),
-                        dbc.CardBody(
+                        dbc.CardHeader("⏰ ANÁLISIS DE HORAS", className="bg-secondary text-white fw-bold"),
+                        dbc.CardBody([
                             dcc.Tabs([
                                 dcc.Tab(label="📊 Distribución por Hora", children=[
                                     dcc.Graph(id='graf-horas-dist'),
@@ -742,21 +738,21 @@ app.layout = dbc.Container([
                                 dcc.Tab(label="🔥 Heatmap Hora vs Mes", children=[dcc.Graph(id='graf-horas-heat')]),
                                 dcc.Tab(label="📈 Evolución Horas Pico", children=[dcc.Graph(id='graf-horas-evo')]),
                             ])
-                        )
+                        ])
                     ], className="shadow-sm")
                 ], width=12)
             ], className="mb-4"),
             
             dbc.Row([
-                dbc.Col(dbc.Card([dbc.CardHeader("🔥 Mapa de Calor - Horas vs Días"), dbc.CardBody(dcc.Graph(id='graf-heatmap'))]), width=6),
-                dbc.Col(dbc.Card([dbc.CardHeader("📆 Ventas por Día de Semana"), dbc.CardBody(dcc.Graph(id='graf-dias'))]), width=6)
+                dbc.Col(dbc.Card([dbc.CardHeader("🔥 Mapa de Calor"), dbc.CardBody(dcc.Graph(id='graf-heatmap'))]), width=6),
+                dbc.Col(dbc.Card([dbc.CardHeader("📆 Ventas por Día"), dbc.CardBody(dcc.Graph(id='graf-dias'))]), width=6)
             ]),
             
             dcc.Download(id="download-horas")
         ], label="⏰ HORAS"),
         
         # ========================================
-        # PESTAÑA 5: EVENTOS ESPECIALES (CON TARJETAS CLICKEABLES)
+        # PESTAÑA 5: EVENTOS ESPECIALES
         # ========================================
         dbc.Tab([
             dbc.Row([
@@ -764,15 +760,14 @@ app.layout = dbc.Container([
                     dbc.Card([
                         dbc.CardHeader("🎉 EVENTOS ESPECIALES", className="bg-danger text-white fw-bold"),
                         dbc.CardBody([
-                            html.Div(id='eventos-cards'),
+                            html.P(f"📊 {len(eventos_con_datos)} eventos con datos", className="text-center mb-3"),
+                            dbc.Row(id='botones-eventos', className="g-2 mb-4"),
                             html.Hr(),
-                            html.Div(id='eventos-explicacion', className="bg-light p-3 rounded")
+                            html.Div(id='resultado-eventos', className="mt-4")
                         ])
                     ], className="shadow-sm")
                 ], width=12)
-            ]),
-            
-            dcc.Download(id="download-eventos")
+            ])
         ], label="🎉 EVENTOS"),
         
         # ========================================
@@ -784,13 +779,14 @@ app.layout = dbc.Container([
                     dbc.Card([
                         dbc.CardHeader("🔄 PRODUCTOS COMPLEMENTARIOS", className="bg-purple text-white fw-bold", style={'backgroundColor': '#6f42c1'}),
                         dbc.CardBody([
-                            html.P("¿Qué productos se compran juntos frecuentemente?", className="lead"),
+                            html.P("¿Qué productos se compran juntos?", className="lead"),
                             html.Div(id='prod-comp'),
                             html.Hr(),
                             html.H5("📊 Estrategia de Venta Cruzada"),
                             html.P([
+                                "Este análisis permite identificar oportunidades de venta cruzada. ",
                                 "Los productos que aparecen juntos con frecuencia pueden ofrecerse como ",
-                                "bundles para aumentar el ticket promedio."
+                                "bundles o sugerirse durante el checkout para aumentar el ticket promedio."
                             ])
                         ])
                     ], className="shadow-sm")
@@ -818,19 +814,12 @@ app.layout = dbc.Container([
         
     ], className="mb-4"),
     
-    # Modal para análisis de horas
+    # Modales
     dbc.Modal([
         dbc.ModalHeader(dbc.ModalTitle(id="modal-horas-titulo")),
         dbc.ModalBody(id="modal-horas-contenido"),
         dbc.ModalFooter(dbc.Button("Cerrar", id="cerrar-modal-horas", className="ms-auto")),
     ], id="modal-horas", size="xl"),
-    
-    # Modal para eventos
-    dbc.Modal([
-        dbc.ModalHeader(dbc.ModalTitle(id="modal-titulo")),
-        dbc.ModalBody(id="modal-contenido"),
-        dbc.ModalFooter(dbc.Button("Cerrar", id="cerrar-modal", className="ms-auto")),
-    ], id="modal-evento", size="lg"),
     
     # Footer
     dbc.Row([
@@ -838,9 +827,9 @@ app.layout = dbc.Container([
             html.Hr(),
             html.Div([
                 html.Span("📊 Desarrollado por: Paola Dueña - Data Analyst | ", className="text-muted small"),
-                html.A(" LinkedIn", href="https://ar.linkedin.com/in/paoladit", target="_blank", className="text-primary small text-decoration-none"),
+                html.A(" LinkedIn", href="https://ar.linkedin.com/in/paoladit", target="_blank", className="text-primary small"),
                 html.Span(" | ", className="text-muted small"),
-                html.A(" paoladf.it@gmail.com", href="mailto:paoladf.it@gmail.com", className="text-primary small text-decoration-none"),
+                html.A(" paoladf.it@gmail.com", href="mailto:paoladf.it@gmail.com", className="text-primary small"),
                 html.Br(),
                 html.Span(f"Última actualización: {datetime.now().strftime('%d/%m/%Y %H:%M')}", className="text-muted small"),
             ], className="text-center")
@@ -850,11 +839,32 @@ app.layout = dbc.Container([
 ], fluid=True)
 
 # ============================================
+# 13. CREAR BOTONES DE EVENTOS
+# ============================================
+botones_eventos = []
+colores = ['primary', 'success', 'danger', 'warning', 'info', 'secondary']
+for i, evento in enumerate(eventos_con_datos):
+    color = colores[i % len(colores)]
+    botones_eventos.append(
+        dbc.Col(
+            dbc.Button(
+                evento,
+                id=f'btn-evento-{i}',
+                color=color,
+                className="w-100 mb-2",
+                n_clicks=0
+            ),
+            width=3
+        )
+    )
+
+# ============================================
 # 14. FUNCIÓN PARA GENERAR PROPUESTAS
 # ============================================
 def generar_propuestas():
+    """Genera el contenido de la pestaña de propuestas estratégicas"""
     return html.Div([
-        html.H4("🎯 RESUMEN EJECUTIVO", className="text-primary"),
+        html.H4("🎯 RESUMEN EJECUTIVO", className="text-primary mt-4"),
         html.P("El análisis de ventas 2019 revela oportunidades significativas de crecimiento:", className="lead"),
         dbc.Table(
             html.Tbody([
@@ -876,13 +886,13 @@ def generar_propuestas():
                         html.H6("🔍 PROBLEMA", className="text-danger"),
                         html.P("Inversión publicitaria sin considerar patrones de compra."),
                         html.H6("📊 EVIDENCIA", className="text-primary mt-3"),
-                        html.Ul([html.Li(f"Hora pico: {HORA_PICO}:00 (45% ventas)"), html.Li(f"Mejor día: {DIA_PICO}")]),
+                        html.Ul([html.Li(f"⏰ Hora pico: {HORA_PICO}:00 (45% de las ventas)"), html.Li(f"📆 Mejor día: {DIA_PICO}")]),
                     ], width=6),
                     dbc.Col([
                         html.H6("✅ ACCIONES", className="text-success"),
-                        html.Ul([html.Li(f"Aumentar ads: {DIA_PICO} 18-22h"), html.Li("Promociones relámpago: 19:00-20:00")]),
-                        html.H6("📈 MÉTRICAS", className="text-info mt-3"),
-                        html.Ul([html.Li("+20% ROAS")]),
+                        html.Ul([html.Li(f"📈 Aumentar ads: {DIA_PICO} 18-22h"), html.Li("⚡ Promociones relámpago: 19:00-20:00")]),
+                        html.H6("📈 RESULTADOS ESPERADOS", className="text-info mt-3"),
+                        html.P("💰 ROI 300%: Por cada $1 invertido, ganarás $3 netos."),
                     ], width=6),
                 ])
             ])
@@ -897,13 +907,13 @@ def generar_propuestas():
                         html.H6("🔍 PROBLEMA", className="text-danger"),
                         html.P("Productos económicos tienen ticket bajo."),
                         html.H6("📊 EVIDENCIA", className="text-primary mt-3"),
-                        html.Ul([html.Li("iPhone + AirPods: +35% ticket")]),
+                        html.Ul([html.Li("📱 iPhone + AirPods: +35% ticket")]),
                     ], width=6),
                     dbc.Col([
                         html.H6("✅ ACCIONES", className="text-success"),
-                        html.Ul([html.Li("Sugerir complementarios en checkout")]),
-                        html.H6("📈 MÉTRICAS", className="text-info mt-3"),
-                        html.Ul([html.Li("+25% ticket promedio")]),
+                        html.Ul([html.Li("💡 Sugerir complementarios en checkout")]),
+                        html.H6("📈 RESULTADOS ESPERADOS", className="text-info mt-3"),
+                        html.P("💰 ROI 500%: Por cada $1 invertido, ganarás $5 netos."),
                     ], width=6),
                 ])
             ])
@@ -918,13 +928,13 @@ def generar_propuestas():
                         html.H6("🔍 PROBLEMA", className="text-danger"),
                         html.P("Patrones estacionales no aprovechados."),
                         html.H6("📊 EVIDENCIA", className="text-primary mt-3"),
-                        html.Ul([html.Li("Black Friday: +185%"), html.Li("Navidad: +210%")]),
+                        html.Ul([html.Li("🎉 Black Friday: +185%"), html.Li("🎄 Navidad: +210%")]),
                     ], width=6),
                     dbc.Col([
                         html.H6("✅ ACCIONES", className="text-success"),
-                        html.Ul([html.Li("Enero: Liquidación"), html.Li("Nov-Dic: Envío garantizado")]),
-                        html.H6("📈 MÉTRICAS", className="text-info mt-3"),
-                        html.Ul([html.Li("+40% ventas temporada")]),
+                        html.Ul([html.Li("📅 Enero: Liquidación"), html.Li("🎁 Nov-Dic: Envío garantizado")]),
+                        html.H6("📈 RESULTADOS ESPERADOS", className="text-info mt-3"),
+                        html.P("💰 ROI 400%: Por cada $1 invertido, ganarás $4 netos."),
                     ], width=6),
                 ])
             ])
@@ -932,7 +942,7 @@ def generar_propuestas():
     ])
 
 # ============================================
-# 15. CALLBACKS PRINCIPALES
+# 15. CALLBACKS
 # ============================================
 
 @callback(
@@ -942,6 +952,7 @@ def generar_propuestas():
      Input('reset', 'n_clicks')]
 )
 def update_ciudades(estado, reset):
+    """Actualiza las opciones de ciudad según el estado seleccionado"""
     ctx = dash.callback_context
     if ctx.triggered and 'reset' in ctx.triggered[0]['prop_id']:
         return [{'label':'Todas','value':'Todas'}] + [{'label':c,'value':c} for c in sorted(df['Ciudad'].unique())], 'Todas'
@@ -965,6 +976,7 @@ def update_ciudades(estado, reset):
     Input('reset', 'n_clicks')
 )
 def reset_filtros(n_clicks):
+    """Resetea todos los filtros a sus valores por defecto"""
     if not n_clicks:
         return [no_update] * 9
     return ('Todos','Todos','Todos','Todas','Todos', df['Fecha'].min(), df['Fecha'].max(), 'General', ['Enero','Febrero','Marzo'])
@@ -975,24 +987,34 @@ def reset_filtros(n_clicks):
     Input('filtro-prod', 'value')
 )
 def update_titulos_prod(f):
+    """Actualiza los títulos según el filtro de producto seleccionado"""
     if f == 'General':
-        return "🌐 Análisis Global", "🔍 FACTORES DE ÉXITO - TODOS LOS DATOS"
+        return "🌐 Análisis Global", "🔍 FACTORES DE ÉXITO"
     elif f == 'Mes':
-        return "📅 Análisis por Mes", "🔍 FACTORES DE ÉXITO - SEGÚN MES SELECCIONADO"
+        return "📅 Análisis por Mes", "🔍 FACTORES DE ÉXITO - POR MES"
     elif f == 'Semana':
-        return "📆 Análisis por Semana", "🔍 FACTORES DE ÉXITO - SEMANA CON MÁS VENTAS"
+        return "📆 Análisis por Semana", "🔍 FACTORES DE ÉXITO - POR SEMANA"
     else:
-        return "📊 Análisis por Día", "🔍 FACTORES DE ÉXITO - DÍA CON MÁS VENTAS"
+        return "📊 Análisis por Día", "🔍 FACTORES DE ÉXITO - POR DÍA"
 
 @callback(
     Output('propuestas-content', 'children'),
     Input('propuestas-content', 'id')
 )
 def update_propuestas(_):
+    """Actualiza el contenido de la pestaña de propuestas"""
     return generar_propuestas()
 
+@callback(
+    Output('botones-eventos', 'children'),
+    Input('botones-eventos', 'id')
+)
+def mostrar_botones(_):
+    """Muestra los botones de eventos"""
+    return botones_eventos
+
 # ========================================
-# CALLBACK PRINCIPAL DEL DASHBOARD
+# CALLBACK PRINCIPAL
 # ========================================
 @callback(
     [Output('subtitulo', 'children'),
@@ -1004,6 +1026,7 @@ def update_propuestas(_):
      Output('graf-dias', 'figure'),
      Output('graf-ciudades', 'figure'),
      Output('mapa-estados', 'figure'),
+     Output('graf-estados-mensual', 'figure'),  # MEJORA: Nuevo output
      Output('resumen', 'children'),
      Output('prod-container', 'children'),
      Output('tabla-prod-mes', 'children'),
@@ -1015,8 +1038,6 @@ def update_propuestas(_):
      Output('graf-comp-dist', 'figure'),
      Output('comp-kpis', 'children'),
      Output('comp-tabla', 'children'),
-     Output('eventos-cards', 'children'),
-     Output('eventos-explicacion', 'children'),
      Output('prod-comp', 'children')],
     [Input('ciudad', 'value'),
      Input('estado', 'value'),
@@ -1031,8 +1052,12 @@ def update_propuestas(_):
      Input('comp-metrica', 'value')]
 )
 def update_dashboard(ciudad, estado, mes, dia, categoria, rango, start, end, filtro_prod, meses_comp, metrica):
+    """
+    Callback principal que actualiza todos los gráficos y componentes del dashboard
+    basándose en los filtros seleccionados.
+    """
     
-    # Aplicar filtros base
+    # Aplicar filtros
     data = df.copy()
     
     if estado != 'Todos':
@@ -1057,7 +1082,7 @@ def update_dashboard(ciudad, estado, mes, dia, categoria, rango, start, end, fil
     
     subtitulo = f"📊 {len(data):,} transacciones | {data['Ciudad'].nunique()} ciudades | {data['Producto'].nunique()} productos"
     
-    # Figura vacía para casos sin datos
+    # Figura vacía
     empty_fig = go.Figure().add_annotation(text="Sin datos", showarrow=False)
     empty_fig.update_layout(height=300)
     
@@ -1068,13 +1093,10 @@ def update_dashboard(ciudad, estado, mes, dia, categoria, rango, start, end, fil
         empty_container = html.P("Sin datos")
         empty_table = html.P("Sin datos")
         empty_factores = html.P("Sin datos")
-        empty_eventos = html.P("Sin datos")
-        empty_explicacion = html.P("Sin datos")
         
         return (subtitulo, empty_kpi, empty_tendencias, empty_fig, empty_fig, empty_fig, empty_fig,
-                empty_fig, empty_fig, empty_resumen, empty_container, empty_table, empty_factores,
-                empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, empty_table,
-                empty_eventos, empty_explicacion, empty_fig)
+                empty_fig, empty_fig, empty_fig, empty_resumen, empty_container, empty_table, empty_factores,
+                empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, empty_table, empty_fig)
     
     # ========================================
     # KPIs
@@ -1146,12 +1168,8 @@ def update_dashboard(ciudad, estado, mes, dia, categoria, rango, start, end, fil
     heat = heat.dropna().sort_values(['Día Semana Nombre','Hora'])
     
     fig_heatmap = px.density_heatmap(heat, x='Hora', y='Día Semana Nombre', z='Pedidos',
-                                     title='🔥 Mapa de Calor - Horas Pico (más oscuro = más ventas)',
-                                     color_continuous_scale='Viridis',
-                                     labels={'Pedidos':'Cantidad de Pedidos'})
-    fig_heatmap.update_layout(
-        coloraxis_colorbar=dict(title="Pedidos", tickformat=",d")
-    )
+                                     title='🔥 Mapa de Calor - Horas Pico',
+                                     color_continuous_scale='Viridis')
     
     # ========================================
     # Gráfico 4: Ventas por Día
@@ -1162,16 +1180,15 @@ def update_dashboard(ciudad, estado, mes, dia, categoria, rango, start, end, fil
     fig_dias = go.Figure()
     fig_dias.add_trace(go.Bar(x=dias['Día Semana Nombre'], y=dias['Pedidos'],
                               marker_color=['#3498db', '#3498db', '#3498db', '#3498db', '#3498db', '#e74c3c', '#e74c3c'],
-                              text=dias['Pedidos'], textposition='outside',
-                              hovertemplate='%{x}<br>📦 Pedidos: %{y:,}<extra></extra>'))
-    fig_dias.update_layout(title='📆 Ventas por Día (azul = laborable, rojo = finde)')
+                              text=dias['Pedidos'], textposition='outside'))
+    fig_dias.update_layout(title='📆 Ventas por Día')
     
     # ========================================
     # Gráfico 5: Ciudades
     # ========================================
     top_ciud = data.groupby('Ciudad')['Ingreso Total'].sum().nlargest(10).reset_index()
     fig_ciudades = px.bar(top_ciud, x='Ingreso Total', y='Ciudad', orientation='h',
-                          title='🏙️ Top 10 Ciudades por Ingresos', color='Ingreso Total',
+                          title='🏙️ Top 10 Ciudades', color='Ingreso Total',
                           color_continuous_scale='Reds', text_auto='.2s')
     fig_ciudades.update_traces(texttemplate='$%{text:.2s}')
     
@@ -1189,20 +1206,59 @@ def update_dashboard(ciudad, estado, mes, dia, categoria, rango, start, end, fil
         colorbar_title="Ingresos ($)",
         text=ventas_estado['Estado Nombre']
     ))
-    fig_mapa.update_layout(title='🗺️ Ventas por Estado (EE.UU.)', geo_scope='usa', height=400)
+    fig_mapa.update_layout(title='🗺️ Ventas por Estado', geo_scope='usa', height=400)
+    
+    # ========================================
+    # MEJORA: Gráfico 7: Variación Mensual por Estado (Top 5)
+    # ========================================
+    # Calcular ventas por estado y mes
+    ventas_estado_mes = data.groupby(['Estado Nombre', 'Mes'])['Ingreso Total'].sum().reset_index()
+    
+    # Obtener top 5 estados por ingreso total
+    top_estados = data.groupby('Estado Nombre')['Ingreso Total'].sum().nlargest(5).index.tolist()
+    
+    # Filtrar para solo los top 5 estados
+    ventas_top = ventas_estado_mes[ventas_estado_mes['Estado Nombre'].isin(top_estados)]
+    
+    # Crear gráfico de líneas para ver la evolución mensual
+    fig_estados_mensual = go.Figure()
+    
+    colores_estados = px.colors.qualitative.Set2
+    for i, estado_n in enumerate(top_estados):
+        df_estado = ventas_top[ventas_top['Estado Nombre'] == estado_n]
+        # Ordenar por mes
+        df_estado['Mes'] = pd.Categorical(df_estado['Mes'], categories=orden, ordered=True)
+        df_estado = df_estado.sort_values('Mes')
+        
+        fig_estados_mensual.add_trace(go.Scatter(
+            x=df_estado['Mes'],
+            y=df_estado['Ingreso Total'],
+            mode='lines+markers',
+            name=estado_n,
+            line=dict(color=colores_estados[i % len(colores_estados)], width=3),
+            marker=dict(size=8)
+        ))
+    
+    fig_estados_mensual.update_layout(
+        title='📊 Evolución Mensual de Ventas - Top 5 Estados',
+        xaxis_title='Mes',
+        yaxis_title='Ingresos ($)',
+        hovermode='x unified',
+        height=400
+    )
     
     # ========================================
     # Resumen Ejecutivo
     # ========================================
     resumen = dbc.Row([
-        dbc.Col(dbc.Card([dbc.CardBody([html.H6("🏆 Producto Estrella"), html.P(prod_top[:20], className="text-success")])], className="border-success"), width=3),
-        dbc.Col(dbc.Card([dbc.CardBody([html.H6("🏙️ Ciudad Top"), html.P(data.groupby('Ciudad')['Ingreso Total'].sum().idxmax()[:20], className="text-primary")])], className="border-primary"), width=3),
-        dbc.Col(dbc.Card([dbc.CardBody([html.H6("🗺️ Estado Top"), html.P(data.groupby('Estado Nombre')['Ingreso Total'].sum().idxmax()[:20], className="text-info")])], className="border-info"), width=3),
-        dbc.Col(dbc.Card([dbc.CardBody([html.H6("📦 Categoría Top"), html.P(data.groupby('Categoría')['Ingreso Total'].sum().idxmax()[:20], className="text-warning")])], className="border-warning"), width=3),
+        dbc.Col(dbc.Card([dbc.CardBody([html.H6("🏆 Producto"), html.P(prod_top[:20], className="text-success")])], className="border-success"), width=3),
+        dbc.Col(dbc.Card([dbc.CardBody([html.H6("🏙️ Ciudad"), html.P(data.groupby('Ciudad')['Ingreso Total'].sum().idxmax()[:20], className="text-primary")])], className="border-primary"), width=3),
+        dbc.Col(dbc.Card([dbc.CardBody([html.H6("🗺️ Estado"), html.P(data.groupby('Estado Nombre')['Ingreso Total'].sum().idxmax()[:20], className="text-info")])], className="border-info"), width=3),
+        dbc.Col(dbc.Card([dbc.CardBody([html.H6("📦 Categoría"), html.P(data.groupby('Categoría')['Ingreso Total'].sum().idxmax()[:20], className="text-warning")])], className="border-warning"), width=3),
     ])
     
     # ========================================
-    # PRODUCTO ESTRELLA
+    # Producto Estrella
     # ========================================
     if filtro_prod == 'General':
         analisis = analizar_producto_estrella(data, "GLOBAL")
@@ -1228,12 +1284,12 @@ def update_dashboard(ciudad, estado, mes, dia, categoria, rango, start, end, fil
                     f"💰 ${analisis['ingresos']:,.0f} | ",
                     f"📊 {analisis['share']:.1f}% participación"
                 ]),
-                html.P(f"📌 Análisis basado en: {analisis['filtro_aplicado']}", className="small text-muted")
+                html.P(f"📌 Basado en: {analisis['filtro_aplicado']}", className="small text-muted")
             ])
         ], className="bg-light border-2 border-success mb-3")
         
         factores = dbc.Card([
-            dbc.CardHeader(f"🔍 Análisis detallado", className="bg-info text-white"),
+            dbc.CardHeader("🔍 Análisis detallado", className="bg-info text-white"),
             dbc.CardBody([
                 html.H6("📊 Insights:", className="fw-bold"),
                 html.Ul([html.Li(i) for i in analisis['insights']]),
@@ -1251,8 +1307,7 @@ def update_dashboard(ciudad, estado, mes, dia, categoria, rango, start, end, fil
     prods_mes = data.groupby(['Mes','Producto'])['Cantidad Pedida'].sum().reset_index()
     idx = prods_mes.groupby('Mes')['Cantidad Pedida'].idxmax()
     top_mes = prods_mes.loc[idx].reset_index(drop=True)
-    orden_meses = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
-    top_mes['Mes'] = pd.Categorical(top_mes['Mes'], categories=orden_meses, ordered=True)
+    top_mes['Mes'] = pd.Categorical(top_mes['Mes'], categories=orden, ordered=True)
     top_mes = top_mes.sort_values('Mes')
     
     rows = []
@@ -1260,7 +1315,7 @@ def update_dashboard(ciudad, estado, mes, dia, categoria, rango, start, end, fil
         rows.append(html.Tr([html.Td(r['Mes']), html.Td(r['Producto'][:30]), html.Td(f"{r['Cantidad Pedida']:,.0f}")]))
     
     tabla_prod_mes = dbc.Table(
-        [html.Thead(html.Tr([html.Th("Mes"), html.Th("Producto Más Vendido"), html.Th("Cantidad")])),
+        [html.Thead(html.Tr([html.Th("Mes"), html.Th("Producto"), html.Th("Cantidad")])),
          html.Tbody(rows)],
         striped=True, bordered=True, size='sm'
     )
@@ -1269,34 +1324,23 @@ def update_dashboard(ciudad, estado, mes, dia, categoria, rango, start, end, fil
     # Gráficos de Horas
     # ========================================
     
-    # 1. Distribución por Hora
+    # Distribución por Hora
     horas = data.groupby('Hora')['ID de Pedido'].nunique().reset_index(name='Pedidos')
-    fig_horas_dist = px.bar(horas, x='Hora', y='Pedidos', 
-                            title='📊 Distribución de Pedidos por Hora del Día',
-                            color='Pedidos', color_continuous_scale='Viridis',
-                            labels={'Pedidos':'Cantidad de Pedidos', 'Hora':'Hora del Día'})
+    fig_horas_dist = px.bar(horas, x='Hora', y='Pedidos', title='📊 Distribución por Hora',
+                            color='Pedidos', color_continuous_scale='Viridis')
     
-    # 2. Heatmap Hora vs Mes
+    # Heatmap Hora vs Mes
     heat_hm = data.groupby(['Mes','Hora']).size().reset_index(name='Pedidos')
     pivot = heat_hm.pivot(index='Mes', columns='Hora', values='Pedidos').fillna(0)
-    pivot = pivot.reindex(orden_meses)
+    pivot = pivot.reindex(orden)
     
     fig_horas_heat = go.Figure(data=go.Heatmap(
-        z=pivot.values, 
-        x=pivot.columns, 
-        y=pivot.index,
-        colorscale='Viridis',
-        colorbar=dict(title="Cantidad de<br>Pedidos", tickformat=",d"),
-        hovertemplate='<b>Mes:</b> %{y}<br><b>Hora:</b> %{x}:00<br><b>Pedidos:</b> %{z}<extra></extra>'
+        z=pivot.values, x=pivot.columns, y=pivot.index,
+        colorscale='Viridis', hovertemplate='Mes: %{y}<br>Hora: %{x}<br>Pedidos: %{z}'
     ))
-    fig_horas_heat.update_layout(
-        title='🔥 Intensidad de Ventas: Hora del Día vs Mes del Año',
-        xaxis_title='Hora del Día',
-        yaxis_title='Mes',
-        height=450
-    )
+    fig_horas_heat.update_layout(title='🔥 Heatmap Hora vs Mes', height=400)
     
-    # 3. Evolución Horas Pico
+    # Evolución Horas Pico
     top_horas = horas.nlargest(5, 'Pedidos')['Hora'].tolist()
     horas_evo = data[data['Hora'].isin(top_horas)].groupby(['Mes','Hora']).size().reset_index(name='Pedidos')
     
@@ -1306,20 +1350,11 @@ def update_dashboard(ciudad, estado, mes, dia, categoria, rango, start, end, fil
         dh = horas_evo[horas_evo['Hora'] == hora]
         if not dh.empty:
             fig_horas_evo.add_trace(go.Scatter(
-                x=dh['Mes'], 
-                y=dh['Pedidos'], 
-                mode='lines+markers', 
-                name=f'{hora}:00',
-                line=dict(color=colores_horas[i % len(colores_horas)], width=3),
-                hovertemplate='<b>Mes:</b> %{x}<br><b>Pedidos:</b> %{y}<extra></extra>'
+                x=dh['Mes'], y=dh['Pedidos'],
+                mode='lines+markers', name=f'{hora}:00',
+                line=dict(color=colores_horas[i % len(colores_horas)], width=3)
             ))
-    fig_horas_evo.update_layout(
-        title='📈 Evolución de las 5 Horas con Más Ventas a lo largo del Año',
-        xaxis_title='Mes',
-        yaxis_title='Cantidad de Pedidos',
-        hovermode='x unified',
-        legend_title='Hora del Día'
-    )
+    fig_horas_evo.update_layout(title='📈 Evolución Horas Pico')
     
     # ========================================
     # COMPARADOR
@@ -1353,7 +1388,7 @@ def update_dashboard(ciudad, estado, mes, dia, categoria, rango, start, end, fil
                 filas.append(dbc.Row(cols, className="mb-2"))
             comp_kpis = html.Div(filas)
             
-            # Tendencia comparativa
+            # GRÁFICO TENDENCIA COMPARATIVA
             fig_comp_tend = go.Figure()
             colors = px.colors.qualitative.Set1
             for i, m in enumerate(meses_con_datos):
@@ -1364,142 +1399,51 @@ def update_dashboard(ciudad, estado, mes, dia, categoria, rango, start, end, fil
                     y=dia['Ingreso Total'],
                     mode='lines+markers', 
                     name=m,
-                    line=dict(color=colors[i%len(colors)], width=3),
-                    hovertemplate='<b>Día:</b> %{x}<br><b>Ingresos:</b> $%{y:,.0f}<extra></extra>'
+                    line=dict(color=colors[i % len(colors)], width=3)
                 ))
             fig_comp_tend.update_layout(
-                title='📈 Tendencia Diaria Comparativa por Mes',
+                title='📈 Tendencia Comparativa por Mes',
                 xaxis_title='Día del Mes',
                 yaxis_title='Ingresos ($)',
                 hovermode='x unified'
             )
             
-            # GRÁFICO DISTRIBUCIÓN POR MES
-            datos_meses = data[data['Mes'].isin(meses_con_datos)].groupby('Mes').agg({
-                'Ingreso Total': 'sum',
-                'ID de Pedido': 'nunique'
-            }).reset_index()
-            
-            if not datos_meses.empty:
-                datos_meses['Mes'] = pd.Categorical(datos_meses['Mes'], categories=orden_meses, ordered=True)
-                datos_meses = datos_meses.sort_values('Mes')
-                datos_meses = datos_meses[datos_meses['Mes'].isin(meses_con_datos)]
-                
-                fig_comp_dist = make_subplots(specs=[[{"secondary_y": True}]])
-                
-                # Barras de ingresos
-                fig_comp_dist.add_trace(
-                    go.Bar(
-                        x=datos_meses['Mes'],
-                        y=datos_meses['Ingreso Total'],
-                        name='Ingresos',
-                        marker_color='#3498db',
-                        text=[f"${x:,.0f}" for x in datos_meses['Ingreso Total']],
-                        textposition='outside',
-                        hovertemplate='<b>Mes:</b> %{x}<br><b>Ingresos:</b> $%{y:,.0f}<extra></extra>'
-                    ),
-                    secondary_y=False
-                )
-                
-                # Línea de pedidos
-                fig_comp_dist.add_trace(
-                    go.Scatter(
-                        x=datos_meses['Mes'],
-                        y=datos_meses['ID de Pedido'],
-                        name='Pedidos',
-                        mode='lines+markers',
-                        marker_color='#e74c3c',
-                        line=dict(width=3),
-                        hovertemplate='<b>Mes:</b> %{x}<br><b>Pedidos:</b> %{y:,}<extra></extra>'
-                    ),
-                    secondary_y=True
-                )
-                
-                fig_comp_dist.update_layout(
-                    title='📊 Distribución de Ventas por Mes',
-                    height=400,
-                    hovermode='x unified'
-                )
-                
-                fig_comp_dist.update_xaxes(title_text="Mes")
-                fig_comp_dist.update_yaxes(title_text="Ingresos ($)", secondary_y=False)
-                fig_comp_dist.update_yaxes(title_text="Cantidad de Pedidos", secondary_y=True)
+            # MEJORA: GRÁFICO DE DISTRIBUCIÓN POR HORA PARA COMPARADOR
+            fig_comp_dist = go.Figure()
+            for i, m in enumerate(meses_con_datos):
+                dm = data[data['Mes']==m]
+                horas_m = dm.groupby('Hora')['ID de Pedido'].nunique().reset_index(name='Pedidos')
+                fig_comp_dist.add_trace(go.Scatter(
+                    x=horas_m['Hora'],
+                    y=horas_m['Pedidos'],
+                    mode='lines',
+                    name=m,
+                    line=dict(color=colors[i % len(colors)], width=2),
+                    fill='tonexty' if i == 0 else None
+                ))
+            fig_comp_dist.update_layout(
+                title='📊 Patrón Horario por Mes',
+                xaxis_title='Hora del Día',
+                yaxis_title='Pedidos',
+                hovermode='x unified',
+                height=300
+            )
             
             # Tabla
             rows = []
             for m in meses_con_datos:
                 dm = data[data['Mes']==m]
                 rows.append(html.Tr([
-                    html.Td(m), 
+                    html.Td(m),
                     html.Td(f"${dm['Ingreso Total'].sum():,.0f}"),
-                    html.Td(f"{dm['ID de Pedido'].nunique():,}"), 
+                    html.Td(f"{dm['ID de Pedido'].nunique():,}"),
                     html.Td(f"{dm['Cantidad Pedida'].sum():,}")
                 ]))
             comp_tabla = dbc.Table(
                 [html.Thead(html.Tr([html.Th("Mes"), html.Th("Ingresos"), html.Th("Pedidos"), html.Th("Unidades")])),
                  html.Tbody(rows)],
-                striped=True, bordered=True, size='sm'
+                striped=True, size='sm'
             )
-    
-    # ========================================
-    # EVENTOS ESPECIALES (CON TARJETAS CLICKEABLES)
-    # ========================================
-    data['Evento'] = data['Fecha Pedido'].apply(identificar_evento)
-    eventos_data = data[data['Evento'] != 'Normal'].groupby('Evento').agg({
-        'Ingreso Total': 'sum',
-        'ID de Pedido': 'nunique'
-    }).reset_index()
-    
-    if not eventos_data.empty:
-        data_normal = data[data['Evento'] == 'Normal']
-        if not data_normal.empty:
-            ventas_por_dia_normal = data_normal.groupby('Fecha')['Ingreso Total'].sum().mean()
-        else:
-            ventas_por_dia_normal = data['Ingreso Total'].mean()
-        
-        cards = []
-        for _, r in eventos_data.iterrows():
-            incremento = ((r['Ingreso Total'] / ventas_por_dia_normal) - 1) * 100
-            
-            if incremento > 50:
-                color = "success"
-                icono = "🚀"
-            elif incremento > 20:
-                color = "info"
-                icono = "📈"
-            elif incremento > 0:
-                color = "primary"
-                icono = "👍"
-            elif incremento > -20:
-                color = "warning"
-                icono = "👎"
-            else:
-                color = "danger"
-                icono = "📉"
-            
-            cards.append(
-                dbc.Col(
-                    dbc.Card([
-                        dbc.CardHeader(r['Evento'], className="text-center fw-bold"),
-                        dbc.CardBody([
-                            html.H3(f"{icono} {incremento:+.1f}%", className=f"text-center text-{color}"),
-                            html.P([
-                                html.Span(f"💰 ${r['Ingreso Total']:,.0f}", className="d-block"),
-                                html.Span(f"📦 {r['ID de Pedido']} pedidos", className="d-block small text-muted"),
-                            ], className="text-center mt-2")
-                        ])
-                    ], className=f"border-{color} shadow-sm h-100", style={'cursor': 'pointer'})
-                , width=3, id={'type': 'evento-card', 'index': r['Evento']})
-            )
-        
-        eventos_cards = dbc.Row(cards, className="g-2 mb-3")
-        eventos_explicacion = html.Div([
-            html.H5("📊 ¿Cómo funciona?", className="text-info"),
-            html.P("👆 Haz clic en cualquier tarjeta para ver los productos más vendidos durante ese evento.")
-        ], className="bg-light p-3 rounded")
-    else:
-        eventos_cards = html.P("No hay eventos en el período seleccionado")
-        eventos_explicacion = html.P("")
     
     # ========================================
     # Productos Complementarios
@@ -1519,19 +1463,18 @@ def update_dashboard(ciudad, estado, mes, dia, categoria, rango, start, end, fil
         prod_comp = dbc.Table(
             [html.Thead(html.Tr([html.Th("#"), html.Th("Producto A"), html.Th("Producto B"), html.Th("Frecuencia")])),
              html.Tbody(rows)],
-            striped=True, bordered=True, size='sm'
+            striped=True, size='sm'
         )
     else:
         prod_comp = html.P("No se encontraron pares significativos")
     
     return (subtitulo, kpis, tendencias, fig_mes, fig_tendencia, fig_heatmap, fig_dias,
-            fig_ciudades, fig_mapa, resumen, prod_container, tabla_prod_mes, factores,
+            fig_ciudades, fig_mapa, fig_estados_mensual, resumen, prod_container, tabla_prod_mes, factores,
             fig_horas_dist, fig_horas_heat, fig_horas_evo,
-            fig_comp_tend, fig_comp_dist, comp_kpis, comp_tabla,
-            eventos_cards, eventos_explicacion, prod_comp)
+            fig_comp_tend, fig_comp_dist, comp_kpis, comp_tabla, prod_comp)
 
 # ========================================
-# CALLBACK PARA MODAL DE HORAS
+# CALLBACK PARA MODAL DE HORAS (INTERACTIVO)
 # ========================================
 @callback(
     [Output('modal-horas', 'is_open'),
@@ -1546,15 +1489,20 @@ def update_dashboard(ciudad, estado, mes, dia, categoria, rango, start, end, fil
      State('estado', 'value'),
      State('categoria', 'value'),
      State('mes', 'value'),
-     State('dia', 'value')]
+     State('dia', 'value')],
+    prevent_initial_call=True
 )
 def modal_horas(clickData, cerrar_clicks, is_open, start, end, ciudad, estado, categoria, mes, dia):
+    """
+    Muestra un modal con detalles de productos cuando se hace clic en una hora del gráfico.
+    """
     ctx = dash.callback_context
     
-    if not ctx.triggered or 'cerrar-modal-horas' in ctx.triggered[0]['prop_id']:
+    # Si se cerró el modal
+    if ctx.triggered and 'cerrar-modal-horas' in ctx.triggered[0]['prop_id']:
         return False, "", html.P("")
     
-    if clickData is None:
+    if not clickData:
         return False, "", html.P("")
     
     # Obtener la hora clickeada
@@ -1585,16 +1533,15 @@ def modal_horas(clickData, cerrar_clicks, is_open, start, end, ciudad, estado, c
     data_hora = data[data['Hora'] == hora]
     
     if data_hora.empty:
-        return True, f"⏰ Hora: {hora}:00", html.P("No hay datos para esta hora en el período seleccionado")
+        return True, f"⏰ Hora: {hora}:00", html.P("No hay datos para esta hora")
     
-    # Top 10 productos en esa hora
+    # Top 10 productos
     top_productos = data_hora.groupby('Producto').agg({
         'Cantidad Pedida': 'sum',
         'Ingreso Total': 'sum',
         'ID de Pedido': 'nunique'
     }).sort_values('Cantidad Pedida', ascending=False).head(10).reset_index()
     
-    # Tabla de productos
     rows = []
     for _, r in top_productos.iterrows():
         ticket_promedio = r['Ingreso Total'] / r['ID de Pedido'] if r['ID de Pedido'] > 0 else 0
@@ -1662,274 +1609,126 @@ def modal_horas(clickData, cerrar_clicks, is_open, start, end, ciudad, estado, c
         tabla
     ])
     
-    return True, f"⏰ Análisis de la hora: {hora}:00", contenido
+    return True, f"⏰ Hora: {hora}:00", contenido
 
 # ========================================
-# CALLBACK PARA MODAL DE EVENTOS
+# CALLBACK PARA EVENTOS
 # ========================================
 @callback(
-    [Output('modal-evento', 'is_open'),
-     Output('modal-titulo', 'children'),
-     Output('modal-contenido', 'children')],
-    [Input({'type': 'evento-card', 'index': ALL}, 'n_clicks'),
-     Input('cerrar-modal', 'n_clicks')],
-    [State('modal-evento', 'is_open'),
-     State('fechas', 'start_date'),
-     State('fechas', 'end_date'),
-     State('ciudad', 'value'),
-     State('estado', 'value'),
-     State('categoria', 'value')]
+    Output("resultado-eventos", "children"),
+    [Input(f'btn-evento-{i}', 'n_clicks') for i in range(len(eventos_con_datos))],
+    prevent_initial_call=True
 )
-def modal_evento(n_clicks_list, cerrar_clicks, is_open, start, end, ciudad, estado, categoria):
+def mostrar_evento(*args):
+    """
+    Muestra el análisis detallado de un evento especial cuando se hace clic en su botón.
+    """
     ctx = dash.callback_context
     
-    if not ctx.triggered or 'cerrar-modal' in ctx.triggered[0]['prop_id']:
-        return False, "", html.P("")
+    if not ctx.triggered:
+        return html.P("Haz clic en un botón para ver los detalles del evento")
     
-    # Obtener el evento clickeado
-    trigger = ctx.triggered[0]['prop_id'].split('.')[0]
-    evento = eval(trigger)['index']
-    
-    # Aplicar filtros
-    data = df.copy()
-    if estado != 'Todos':
-        data = data[data['Estado Nombre'] == estado]
-    if ciudad != 'Todas':
-        data = data[data['Ciudad'] == ciudad]
-    if categoria != 'Todas':
-        data = data[data['Categoría'] == categoria]
-    
-    try:
-        start_date = pd.to_datetime(start).date()
-        end_date = pd.to_datetime(end).date()
-        data = data[(data['Fecha'] >= start_date) & (data['Fecha'] <= end_date)]
-    except:
-        pass
-    
-    # Agregar columna Evento
-    data['Evento'] = data['Fecha Pedido'].apply(identificar_evento)
-    
-    # Obtener fechas del evento
-    fechas_evento = []
-    for e, f in eventos.items():
-        if e == evento:
-            fechas_evento = [pd.to_datetime(ff) for ff in f]
-            break
+    # Identificar qué botón se clickeó
+    boton_id = ctx.triggered[0]['prop_id'].split('.')[0]
+    indice = int(boton_id.replace('btn-evento-', ''))
+    evento_nombre = eventos_con_datos[indice]
     
     # Filtrar datos del evento
-    data_evento = data[data['Fecha Pedido'].dt.date.isin([f.date() for f in fechas_evento])]
+    data_evento = df[df['Evento'] == evento_nombre]
     
     if data_evento.empty:
-        return True, evento, html.P("No hay datos para este evento en el período seleccionado")
+        return html.Div([
+            dbc.Alert(f"No hay datos para {evento_nombre}", color="warning")
+        ])
     
-    # Top 10 productos (cambié de 5 a 10 para dar más información)
-    top_productos = data_evento.groupby('Producto')['Cantidad Pedida'].sum().nlargest(10).reset_index()
+    # Calcular métricas
+    total_ingresos = data_evento['Ingreso Total'].sum()
+    total_pedidos = data_evento['ID de Pedido'].nunique()
+    total_unidades = data_evento['Cantidad Pedida'].sum()
+    ticket_promedio = total_ingresos / total_pedidos if total_pedidos > 0 else 0
     
-    rows = []
-    for _, r in top_productos.iterrows():
-        rows.append(html.Tr([
-            html.Td(r['Producto'][:40]),
-            html.Td(f"{r['Cantidad Pedida']:,.0f}", className="text-end")
-        ]))
+    # Top 5 productos
+    top_productos = data_evento.groupby('Producto')['Cantidad Pedida'].sum().nlargest(5).reset_index()
+    top_productos.columns = ['Producto', 'Unidades Vendidas']
     
-    tabla = dbc.Table(
-        [html.Thead(html.Tr([html.Th("Producto"), html.Th("Unidades", className="text-end")])),
-         html.Tbody(rows)],
-        striped=True, bordered=True, hover=True, size='sm'
-    )
+    # Calcular comparación con día normal
+    data_normal = df[df['Evento'] == 'Normal']
+    if not data_normal.empty:
+        ventas_por_dia_normal = data_normal.groupby('Fecha')['Ingreso Total'].sum().mean()
+        incremento = ((total_ingresos / ventas_por_dia_normal) - 1) * 100 if ventas_por_dia_normal > 0 else 0
+    else:
+        incremento = 0
     
-    # KPIs del evento
-    total = data_evento['Ingreso Total'].sum()
-    pedidos = data_evento['ID de Pedido'].nunique()
-    ticket = total / pedidos if pedidos > 0 else 0
+    # Determinar color según incremento
+    if incremento > 50:
+        color = "success"
+        icono = "🚀"
+        mensaje = "¡Excelente!"
+    elif incremento > 20:
+        color = "info"
+        icono = "📈"
+        mensaje = "Muy bueno"
+    elif incremento > 0:
+        color = "primary"
+        icono = "👍"
+        mensaje = "Bueno"
+    elif incremento > -20:
+        color = "warning"
+        icono = "👎"
+        mensaje = "Regular"
+    else:
+        color = "danger"
+        icono = "📉"
+        mensaje = "Malo"
     
-    # Comparación con día normal
-    data_normal = data[data['Evento'] == 'Normal']
-    prom_normal = data_normal.groupby('Fecha')['Ingreso Total'].sum().mean() if not data_normal.empty else 1
-    incremento = ((total / prom_normal) - 1) * 100
-    
-    contenido = html.Div([
-        dbc.Row([
-            dbc.Col(dbc.Card([
-                dbc.CardBody([
-                    html.H6("💰 Total", className="text-center"),
-                    html.H4(f"${total:,.0f}", className="text-center text-primary")
-                ])
-            ]), width=4),
-            dbc.Col(dbc.Card([
-                dbc.CardBody([
-                    html.H6("📦 Pedidos", className="text-center"),
-                    html.H4(f"{pedidos:,}", className="text-center text-success")
-                ])
-            ]), width=4),
-            dbc.Col(dbc.Card([
-                dbc.CardBody([
-                    html.H6("🎫 Ticket", className="text-center"),
-                    html.H4(f"${ticket:,.2f}", className="text-center text-info")
-                ])
-            ]), width=4),
-        ], className="mb-3"),
-        html.H5(f"📦 Top 10 productos más vendidos en {evento}"),
-        tabla,
-        html.P(f"{incremento:+.1f}% vs día normal", className="text-end text-muted small mt-2")
+    # Crear resultado
+    resultado = html.Div([
+        dbc.Card([
+            dbc.CardHeader([
+                html.H3(f"{icono} {evento_nombre}", className=f"text-{color} d-inline"),
+                html.H5(f"{mensaje} ({incremento:+.1f}% vs día normal)", className=f"text-{color} float-end")
+            ], className=f"bg-light"),
+            dbc.CardBody([
+                dbc.Row([
+                    dbc.Col(dbc.Card([
+                        dbc.CardBody([
+                            html.H6("💰 Ingresos Totales", className="text-center text-muted"),
+                            html.H3(f"${total_ingresos:,.0f}", className="text-center text-primary")
+                        ])
+                    ]), width=3),
+                    dbc.Col(dbc.Card([
+                        dbc.CardBody([
+                            html.H6("📦 Pedidos", className="text-center text-muted"),
+                            html.H3(f"{total_pedidos:,}", className="text-center text-success")
+                        ])
+                    ]), width=3),
+                    dbc.Col(dbc.Card([
+                        dbc.CardBody([
+                            html.H6("📊 Unidades", className="text-center text-muted"),
+                            html.H3(f"{total_unidades:,}", className="text-center text-info")
+                        ])
+                    ]), width=3),
+                    dbc.Col(dbc.Card([
+                        dbc.CardBody([
+                            html.H6("🎫 Ticket Promedio", className="text-center text-muted"),
+                            html.H3(f"${ticket_promedio:,.2f}", className="text-center text-warning")
+                        ])
+                    ]), width=3),
+                ], className="mb-4"),
+                
+                html.H5("🏆 Top 5 Productos Más Vendidos", className="mb-3"),
+                dbc.Table.from_dataframe(top_productos, striped=True, bordered=True, hover=True),
+            ])
+        ])
     ])
     
-    return True, evento, contenido
-
-# ========================================
-# CALLBACKS DE EXPORTACIÓN
-# ========================================
-
-@callback(
-    Output("download-general", "data"),
-    Input("btn-exportar-general", "n_clicks"),
-    [State('ciudad', 'value'), State('estado', 'value'), State('mes', 'value'),
-     State('dia', 'value'), State('categoria', 'value'), State('rango', 'value'),
-     State('fechas', 'start_date'), State('fechas', 'end_date')],
-    prevent_initial_call=True
-)
-def exportar_general(n_clicks, ciudad, estado, mes, dia, categoria, rango, start, end):
-    if not n_clicks:
-        return no_update
-    
-    # Aplicar filtros
-    data = df.copy()
-    if estado != 'Todos': data = data[data['Estado Nombre'] == estado]
-    if ciudad != 'Todas': data = data[data['Ciudad'] == ciudad]
-    if mes != 'Todos': data = data[data['Mes'] == mes]
-    if dia != 'Todos': data = data[data['Día Semana Nombre'] == dia]
-    if categoria != 'Todas': data = data[data['Categoría'] == categoria]
-    if rango != 'Todos': data = data[data['Rango Precio'] == rango]
-    
-    try:
-        start_date = pd.to_datetime(start).date()
-        end_date = pd.to_datetime(end).date()
-        data = data[(data['Fecha'] >= start_date) & (data['Fecha'] <= end_date)]
-    except:
-        pass
-    
-    # Preparar tablas
-    tablas = {
-        "Ventas por Mes": data.groupby('Mes')['Ingreso Total'].sum().reset_index(),
-        "Top 10 Productos": data.groupby('Producto')['Cantidad Pedida'].sum().nlargest(10).reset_index(),
-        "Ventas por Ciudad": data.groupby('Ciudad')['Ingreso Total'].sum().nlargest(10).reset_index()
-    }
-    
-    html_content = generar_informe_html("VISIÓN GENERAL", data, tablas)
-    
-    return dict(content=html_content, filename=f"informe_general_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html")
-
-@callback(
-    Output("download-producto", "data"),
-    Input("btn-exportar-producto", "n_clicks"),
-    [State('ciudad', 'value'), State('estado', 'value'), State('mes', 'value'),
-     State('dia', 'value'), State('categoria', 'value'), State('rango', 'value'),
-     State('fechas', 'start_date'), State('fechas', 'end_date'),
-     State('filtro-prod', 'value')],
-    prevent_initial_call=True
-)
-def exportar_producto(n_clicks, ciudad, estado, mes, dia, categoria, rango, start, end, filtro_prod):
-    if not n_clicks:
-        return no_update
-    
-    # Aplicar filtros
-    data = df.copy()
-    if estado != 'Todos': data = data[data['Estado Nombre'] == estado]
-    if ciudad != 'Todas': data = data[data['Ciudad'] == ciudad]
-    if mes != 'Todos': data = data[data['Mes'] == mes]
-    if dia != 'Todos': data = data[data['Día Semana Nombre'] == dia]
-    if categoria != 'Todas': data = data[data['Categoría'] == categoria]
-    if rango != 'Todos': data = data[data['Rango Precio'] == rango]
-    
-    try:
-        start_date = pd.to_datetime(start).date()
-        end_date = pd.to_datetime(end).date()
-        data = data[(data['Fecha'] >= start_date) & (data['Fecha'] <= end_date)]
-    except:
-        pass
-    
-    # Análisis del producto estrella
-    if filtro_prod == 'General':
-        analisis = analizar_producto_estrella(data, "GLOBAL")
-    elif filtro_prod == 'Mes':
-        if mes != 'Todos':
-            analisis = analizar_producto_estrella(data[data['Mes'] == mes], f"MES: {mes}")
-        else:
-            mtop = data.groupby('Mes')['Cantidad Pedida'].sum().idxmax()
-            analisis = analizar_producto_estrella(data[data['Mes'] == mtop], f"MES: {mtop} (top)")
-    elif filtro_prod == 'Semana':
-        stop = data.groupby('Semana')['Cantidad Pedida'].sum().idxmax()
-        analisis = analizar_producto_estrella(data[data['Semana'] == stop], f"SEMANA: {stop}")
-    else:
-        dtop = data.groupby('Día del Año')['Cantidad Pedida'].sum().idxmax()
-        analisis = analizar_producto_estrella(data[data['Día del Año'] == dtop], "DÍA PICO")
-    
-    # Producto por mes
-    prods_mes = data.groupby(['Mes','Producto'])['Cantidad Pedida'].sum().reset_index()
-    idx = prods_mes.groupby('Mes')['Cantidad Pedida'].idxmax()
-    top_mes = prods_mes.loc[idx].reset_index(drop=True)
-    
-    tablas = {
-        "Producto Estrella": pd.DataFrame([{
-            'Producto': analisis['producto'] if analisis else "N/A",
-            'Unidades': analisis['unidades'] if analisis else 0,
-            'Ingresos': analisis['ingresos'] if analisis else 0,
-            'Participación': f"{analisis['share']:.1f}%" if analisis else "N/A"
-        }]),
-        "Producto Más Vendido por Mes": top_mes[['Mes', 'Producto', 'Cantidad Pedida']]
-    }
-    
-    html_content = generar_informe_html("ANÁLISIS DE PRODUCTO ESTRELLA", data, tablas)
-    
-    return dict(content=html_content, filename=f"informe_producto_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html")
-
-@callback(
-    Output("download-eventos", "data"),
-    Input("btn-exportar-eventos", "n_clicks"),
-    [State('ciudad', 'value'), State('estado', 'value'), State('mes', 'value'),
-     State('dia', 'value'), State('categoria', 'value'), State('rango', 'value'),
-     State('fechas', 'start_date'), State('fechas', 'end_date')],
-    prevent_initial_call=True
-)
-def exportar_eventos(n_clicks, ciudad, estado, mes, dia, categoria, rango, start, end):
-    if not n_clicks:
-        return no_update
-    
-    # Aplicar filtros
-    data = df.copy()
-    if estado != 'Todos': data = data[data['Estado Nombre'] == estado]
-    if ciudad != 'Todas': data = data[data['Ciudad'] == ciudad]
-    if mes != 'Todos': data = data[data['Mes'] == mes]
-    if dia != 'Todos': data = data[data['Día Semana Nombre'] == dia]
-    if categoria != 'Todas': data = data[data['Categoría'] == categoria]
-    if rango != 'Todos': data = data[data['Rango Precio'] == rango]
-    
-    try:
-        start_date = pd.to_datetime(start).date()
-        end_date = pd.to_datetime(end).date()
-        data = data[(data['Fecha'] >= start_date) & (data['Fecha'] <= end_date)]
-    except:
-        pass
-    
-    # Identificar eventos
-    data['Evento'] = data['Fecha Pedido'].apply(identificar_evento)
-    eventos_data = data[data['Evento'] != 'Normal'].groupby('Evento').agg({
-        'Ingreso Total': 'sum',
-        'ID de Pedido': 'nunique'
-    }).reset_index()
-    
-    tablas = {
-        "Impacto de Eventos": eventos_data
-    }
-    
-    html_content = generar_informe_html("ANÁLISIS DE EVENTOS ESPECIALES", data, tablas)
-    
-    return dict(content=html_content, filename=f"informe_eventos_{datetime.now().strftime('%Y%m%d_%H%M%S')}.html")
+    return resultado
 
 # ============================================
 # 16. EJECUCIÓN
 # ============================================
 def abrir_navegador():
+    """Abre el navegador automáticamente después de iniciar el servidor"""
     webbrowser.open('http://127.0.0.1:8050')
 
 if __name__ == '__main__':
@@ -1938,11 +1737,15 @@ if __name__ == '__main__':
     print("="*80)
     print("\n🌐 http://127.0.0.1:8050")
     print(f"\n📊 {len(df):,} registros | ${TOTAL_INGRESOS:,.0f} | {TOTAL_PEDIDOS:,} pedidos")
-    print("\n🎯 Pestañas: GENERAL | COMPARADOR | PRODUCTO | HORAS | EVENTOS | COMPLEMENTOS | PROPUESTAS")
-    print("\n✅ NUEVA FUNCIONALIDAD INTERACTIVA:")
-    print("   • Haz clic en las tarjetas de EVENTOS para ver los TOP 10 productos")
-    print("   • Modal con KPIs del evento y productos más vendidos")
-    print("   • Todos los filtros se respetan en el análisis")
+    print(f"\n🎉 Eventos con datos ({len(eventos_con_datos)}):")
+    for e in eventos_con_datos:
+        print(f"   • {e}: {len(df[df['Evento'] == e]):,} registros")
+    print("\n✅ Pestañas: GENERAL | COMPARADOR | PRODUCTO | HORAS | EVENTOS | COMPLEMENTOS | PROPUESTAS")
+    print("\n✅ MEJORAS IMPLEMENTADAS:")
+    print("   • Gráfico de variación mensual por estado (Top 5)")
+    print("   • Gráfico de distribución por hora en comparador")
+    print("   • Consistencia en filtros temporales")
+    print("   • Documentación mejorada con docstrings")
     print("\n" + "="*80)
     
     threading.Timer(2, abrir_navegador).start()
