@@ -6,11 +6,14 @@
                     PANEL DE VENTAS 2019 - VERSIÓN FINAL
 ================================================================================
 Desarrollado por: Paola Dueña - Data Analyst
+Librerías: NumPy, Pandas, Matplotlib, Seaborn, Plotly
 ================================================================================
 """
 
 import pandas as pd
 import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
@@ -38,7 +41,6 @@ try:
 except ImportError:
     EXCEL_AVAILABLE = False
     print("⚠️ xlsxwriter no instalado. La exportación a Excel usará formato básico.")
-    print("   Para mejor rendimiento: pip install xlsxwriter")
 
 try:
     from reportlab.lib import colors
@@ -50,7 +52,6 @@ try:
 except ImportError:
     PDF_AVAILABLE = False
     print("⚠️ reportlab no instalado. La exportación a PDF estará deshabilitada.")
-    print("   Para instalarlo: pip install reportlab")
 
 warnings.filterwarnings('ignore')
 
@@ -74,11 +75,6 @@ if not archivos:
     print("="*80)
     print("\nNo se encontraron archivos CSV en la ruta:")
     print(f"   {ruta}")
-    print("\nPor favor, verifica que:")
-    print("   1. La ruta sea correcta")
-    print("   2. Los archivos tengan el formato 'Dataset_de_ventas_*.csv'")
-    print("   3. Los archivos existan en esa ubicación")
-    print("\n" + "="*80)
     sys.exit(1)
 
 print(f"   ✅ Archivos encontrados: {len(archivos)}")
@@ -261,7 +257,131 @@ for evento in eventos.keys():
 print(f"   • Total eventos con datos: {len(eventos_con_datos)}")
 
 # ============================================
-# 7. KPIs GLOBALES
+# 7. ESTADÍSTICAS CON NUMPY EXPLÍCITO
+# ============================================
+print("\n🔢 ESTADÍSTICAS CON NUMPY EXPLÍCITO:")
+
+precios_array = df['Precio Unitario'].values
+cantidades_array = df['Cantidad Pedida'].values
+ingresos_array = df['Ingreso Total'].values
+
+media_precio = np.mean(precios_array)
+mediana_precio = np.median(precios_array)
+std_precio = np.std(precios_array)
+min_precio = np.min(precios_array)
+max_precio = np.max(precios_array)
+percentil_90 = np.percentile(precios_array, 90)
+
+print(f"   • Media de precios: ${media_precio:.2f}")
+print(f"   • Mediana de precios: ${mediana_precio:.2f}")
+print(f"   • Desviación estándar: ${std_precio:.2f}")
+print(f"   • Rango de precios: ${min_precio:.2f} - ${max_precio:.2f}")
+print(f"   • Percentil 90: ${percentil_90:.2f}")
+
+correlacion = np.corrcoef(cantidades_array, precios_array)[0, 1]
+print(f"   • Correlación cantidad-precio: {correlacion:.3f}")
+
+total_ingresos_np = np.sum(ingresos_array)
+print(f"   • Total ingresos (np.sum): ${total_ingresos_np:,.0f}")
+
+# ============================================
+# 8. GRÁFICOS CON MATPLOTLIB Y SEABORN (SILENCIOSOS)
+# ============================================
+print("\n📊 Generando visualizaciones adicionales...")
+
+def generar_graficos_estaticos(data):
+    """Genera gráficos estáticos con Matplotlib/Seaborn"""
+    
+    plt.style.use('seaborn-v0_8-darkgrid')
+    sns.set_palette("husl")
+    
+    fig = plt.figure(figsize=(20, 12))
+    fig.suptitle('ANÁLISIS DE VENTAS 2019 - GRÁFICOS ESTÁTICOS', 
+                 fontsize=16, fontweight='bold', y=0.98)
+    
+    # 1. Ventas por mes (Matplotlib)
+    ax1 = plt.subplot(2, 3, 1)
+    ventas_mes = data.groupby('Mes Num')['Ingreso Total'].sum().reset_index()
+    meses_nombres = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 
+                     'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
+    bars = ax1.bar(meses_nombres, ventas_mes['Ingreso Total'], 
+                   color='#3498db', edgecolor='#2c3e50')
+    ax1.set_title('💰 Ventas por Mes', fontsize=12, fontweight='bold')
+    ax1.set_xlabel('Mes')
+    ax1.set_ylabel('Ingresos ($)')
+    ax1.tick_params(axis='x', rotation=45)
+    
+    # 2. Distribución por hora (Matplotlib)
+    ax2 = plt.subplot(2, 3, 2)
+    ventas_hora = data.groupby('Hora')['ID de Pedido'].nunique().reset_index()
+    ax2.plot(ventas_hora['Hora'], ventas_hora['ID de Pedido'], 
+             marker='o', linewidth=2, color='#e74c3c')
+    ax2.fill_between(ventas_hora['Hora'], ventas_hora['ID de Pedido'], alpha=0.3, color='#e74c3c')
+    ax2.set_title('⏰ Pedidos por Hora', fontsize=12, fontweight='bold')
+    ax2.set_xlabel('Hora del Día')
+    ax2.set_ylabel('Cantidad de Pedidos')
+    ax2.grid(True, alpha=0.3)
+    
+    # 3. Top 10 ciudades (Seaborn)
+    ax3 = plt.subplot(2, 3, 3)
+    top_ciudades = data.groupby('Ciudad')['Ingreso Total'].sum().nlargest(10).reset_index()
+    sns.barplot(data=top_ciudades, y='Ciudad', x='Ingreso Total', 
+                palette='Reds_r', ax=ax3)
+    ax3.set_title('🏙️ Top 10 Ciudades', fontsize=12, fontweight='bold')
+    ax3.set_xlabel('Ingresos ($)')
+    
+    # 4. Mapa de calor Día vs Hora (Seaborn)
+    ax4 = plt.subplot(2, 3, 4)
+    pivot = data.pivot_table(
+        index='Día Semana Nombre', 
+        columns='Hora', 
+        values='ID de Pedido', 
+        aggfunc='count', 
+        fill_value=0
+    )
+    orden_dias = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
+    pivot = pivot.reindex(orden_dias)
+    sns.heatmap(pivot, cmap='YlOrRd', ax=ax4,
+                cbar_kws={'label': 'Cantidad de Pedidos'})
+    ax4.set_title('🔥 Mapa de Calor: Día vs Hora', fontsize=12, fontweight='bold')
+    ax4.set_xlabel('Hora del Día')
+    
+    # 5. Distribución de precios (Seaborn)
+    ax5 = plt.subplot(2, 3, 5)
+    sns.histplot(data=data, x='Precio Unitario', bins=50, 
+                 kde=True, color='#2ecc71', ax=ax5)
+    ax5.set_title('📦 Distribución de Precios', fontsize=12, fontweight='bold')
+    ax5.set_xlabel('Precio Unitario ($)')
+    media = data['Precio Unitario'].mean()
+    mediana = data['Precio Unitario'].median()
+    ax5.axvline(media, color='red', linestyle='--', label=f'Media: ${media:.2f}')
+    ax5.axvline(mediana, color='blue', linestyle='--', label=f'Mediana: ${mediana:.2f}')
+    ax5.legend()
+    
+    # 6. Ventas por día (Matplotlib)
+    ax6 = plt.subplot(2, 3, 6)
+    ventas_dia = data.groupby('Día Semana Nombre')['ID de Pedido'].nunique()
+    ventas_dia = ventas_dia.reindex(orden_dias)
+    colores = ['#3498db']*5 + ['#e74c3c']*2
+    ax6.bar(orden_dias, ventas_dia.values, color=colores, edgecolor='black')
+    ax6.set_title('📆 Ventas por Día', fontsize=12, fontweight='bold')
+    ax6.set_xlabel('Día')
+    ax6.set_ylabel('Pedidos')
+    ax6.tick_params(axis='x', rotation=45)
+    
+    plt.tight_layout()
+    filename = f'graficos_estaticos_{datetime.now().strftime("%Y%m%d_%H%M%S")}.png'
+    plt.savefig(filename, dpi=150, bbox_inches='tight')
+    plt.close()
+    
+    return filename
+
+# Generar los gráficos (silenciosamente)
+graficos_filename = generar_graficos_estaticos(df)
+print(f"   ✅ Visualizaciones guardadas como: {graficos_filename}")
+
+# ============================================
+# 9. KPIs GLOBALES
 # ============================================
 print("\n📊 CALCULANDO KPIs GLOBALES...")
 
@@ -289,7 +409,7 @@ print(f"   • Ingresos totales: ${TOTAL_INGRESOS:,.0f}")
 print(f"   • Crecimiento: {CRECIMIENTO_ANUAL:+.1f}%")
 
 # ============================================
-# 8. FUNCIÓN PRODUCTO ESTRELLA
+# 10. FUNCIÓN PRODUCTO ESTRELLA
 # ============================================
 def analizar_producto_estrella(data, filtro_temporal):
     if data.empty or len(data) < 10:
@@ -366,7 +486,7 @@ def analizar_producto_estrella(data, filtro_temporal):
         return None
 
 # ============================================
-# 9. FUNCIÓN PARA PRODUCTOS COMPLEMENTARIOS
+# 11. FUNCIÓN PARA PRODUCTOS COMPLEMENTARIOS
 # ============================================
 def analizar_productos_complementarios(data):
     if data.empty or len(data) < 100:
@@ -391,7 +511,7 @@ def analizar_productos_complementarios(data):
         return []
 
 # ============================================
-# 10. FUNCIONES DE EXPORTACIÓN (DATOS VISIBLES)
+# 12. FUNCIONES DE EXPORTACIÓN
 # ============================================
 
 def generar_excel_datos_visibles(data):
@@ -400,7 +520,6 @@ def generar_excel_datos_visibles(data):
         output = io.BytesIO()
         
         with pd.ExcelWriter(output, engine='xlsxwriter' if EXCEL_AVAILABLE else 'openpyxl') as writer:
-            # Resumen ejecutivo
             resumen = pd.DataFrame({
                 'Métrica': ['Total Ingresos', 'Total Pedidos', 'Total Unidades', 'Ticket Promedio', 'Período'],
                 'Valor': [
@@ -413,58 +532,49 @@ def generar_excel_datos_visibles(data):
             })
             resumen.to_excel(writer, sheet_name='Resumen Ejecutivo', index=False)
             
-            # Ventas por mes (lo que se ve en el gráfico)
             ventas_mes = data.groupby('Mes').agg({
                 'Ingreso Total': 'sum',
                 'ID de Pedido': 'nunique',
                 'Cantidad Pedida': 'sum'
             }).reset_index()
-            # Ordenar por mes
             orden_meses = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
             ventas_mes['Mes'] = pd.Categorical(ventas_mes['Mes'], categories=orden_meses, ordered=True)
             ventas_mes = ventas_mes.sort_values('Mes')
             ventas_mes.to_excel(writer, sheet_name='Ventas por Mes', index=False)
             
-            # Top 10 ciudades (lo que se ve en el gráfico)
             ventas_ciudad = data.groupby('Ciudad').agg({
                 'Ingreso Total': 'sum',
                 'ID de Pedido': 'nunique'
             }).reset_index().sort_values('Ingreso Total', ascending=False).head(10)
             ventas_ciudad.to_excel(writer, sheet_name='Top 10 Ciudades', index=False)
             
-            # Ventas por estado (lo que se ve en el mapa)
             ventas_estado = data.groupby('Estado Nombre').agg({
                 'Ingreso Total': 'sum',
                 'ID de Pedido': 'nunique'
             }).reset_index().sort_values('Ingreso Total', ascending=False)
             ventas_estado.to_excel(writer, sheet_name='Ventas por Estado', index=False)
             
-            # Ventas por hora (lo que se ve en el gráfico)
             ventas_hora = data.groupby('Hora').agg({
                 'ID de Pedido': 'nunique',
                 'Ingreso Total': 'sum'
             }).reset_index().sort_values('Hora')
             ventas_hora.to_excel(writer, sheet_name='Ventas por Hora', index=False)
             
-            # Ventas por día (lo que se ve en el gráfico)
             ventas_dia = data.groupby('Día Semana Nombre').agg({
                 'ID de Pedido': 'nunique',
                 'Ingreso Total': 'sum'
             }).reset_index()
-            # Ordenar por día
             orden_dias = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo']
             ventas_dia['Día Semana Nombre'] = pd.Categorical(ventas_dia['Día Semana Nombre'], categories=orden_dias, ordered=True)
             ventas_dia = ventas_dia.sort_values('Día Semana Nombre')
             ventas_dia.to_excel(writer, sheet_name='Ventas por Día', index=False)
             
-            # Top 20 productos (lo que se ve en análisis)
             top_productos = data.groupby('Producto').agg({
                 'Cantidad Pedida': 'sum',
                 'Ingreso Total': 'sum'
             }).reset_index().sort_values('Cantidad Pedida', ascending=False).head(20)
             top_productos.to_excel(writer, sheet_name='Top 20 Productos', index=False)
             
-            # Producto por mes (tabla visible)
             prods_mes = data.groupby(['Mes','Producto'])['Cantidad Pedida'].sum().reset_index()
             idx = prods_mes.groupby('Mes')['Cantidad Pedida'].idxmax()
             top_mes = prods_mes.loc[idx].reset_index(drop=True)
@@ -472,7 +582,6 @@ def generar_excel_datos_visibles(data):
             top_mes = top_mes.sort_values('Mes')
             top_mes.to_excel(writer, sheet_name='Producto Estrella por Mes', index=False)
             
-            # Productos complementarios
             top_pares = analizar_productos_complementarios(data)
             if top_pares:
                 pares_data = []
@@ -558,7 +667,6 @@ def generar_informe_pdf_datos_visibles(data, titulo):
         story.append(Paragraph(f"Generado: {datetime.now().strftime('%d/%m/%Y %H:%M')}", fecha_style))
         story.append(Spacer(1, 20))
         
-        # KPIs
         kpi_data = [
             ['Métrica', 'Valor'],
             ['Ingresos Totales', f'${data["Ingreso Total"].sum():,.0f}'],
@@ -586,7 +694,6 @@ def generar_informe_pdf_datos_visibles(data, titulo):
         story.append(Paragraph("Resumen Ejecutivo", styles['Heading2']))
         story.append(Spacer(1, 12))
         
-        # Top productos
         top_prod = data.groupby('Producto')['Cantidad Pedida'].sum().nlargest(5).reset_index()
         top_prod.columns = ['Producto', 'Unidades']
         
@@ -617,7 +724,7 @@ def generar_informe_pdf_datos_visibles(data, titulo):
         return None
 
 # ============================================
-# 11. CONFIGURACIÓN DASHBOARD
+# 13. CONFIGURACIÓN DASHBOARD
 # ============================================
 print("\n🚀 Inicializando dashboard...")
 
@@ -639,7 +746,7 @@ filtros_temporales = [
 ]
 
 # ============================================
-# 12. LAYOUT PRINCIPAL
+# 14. LAYOUT PRINCIPAL
 # ============================================
 app.layout = dbc.Container([
     
@@ -978,7 +1085,7 @@ app.layout = dbc.Container([
 ], fluid=True)
 
 # ============================================
-# 13. CREAR BOTONES DE EVENTOS
+# 15. CREAR BOTONES DE EVENTOS
 # ============================================
 botones_eventos = []
 colores = ['primary', 'success', 'danger', 'warning', 'info', 'secondary']
@@ -998,7 +1105,7 @@ for i, evento in enumerate(eventos_con_datos):
     )
 
 # ============================================
-# 14. FUNCIÓN PARA GENERAR PROPUESTAS
+# 16. FUNCIÓN PARA GENERAR PROPUESTAS
 # ============================================
 def generar_propuestas():
     return html.Div([
@@ -1077,7 +1184,7 @@ def generar_propuestas():
     ])
 
 # ============================================
-# 15. CALLBACKS
+# 17. CALLBACKS
 # ============================================
 
 @callback(
@@ -1144,14 +1251,11 @@ def mostrar_botones(_):
     return botones_eventos
 
 # ============================================
-# CALLBACKS DE EXPORTACIÓN (DATOS VISIBLES)
+# CALLBACKS DE EXPORTACIÓN
 # ============================================
 
 def obtener_datos_filtrados():
-    """Obtiene los datos actuales según los filtros del dashboard"""
-    # Este callback se llama desde los botones de exportación
-    # Usamos los valores actuales de los filtros
-    return df  # En un caso real, aquí aplicarías los filtros
+    return df
 
 @callback(
     Output("download-csv", "data"),
@@ -1170,7 +1274,6 @@ def exportar_csv(n_clicks, ciudad, estado, mes, dia, categoria, rango, start, en
     if not n_clicks:
         raise PreventUpdate
     
-    # Aplicar filtros
     data = df.copy()
     
     if estado != 'Todos':
@@ -1193,7 +1296,6 @@ def exportar_csv(n_clicks, ciudad, estado, mes, dia, categoria, rango, start, en
     except:
         pass
     
-    # Generar CSV con datos visibles
     csv_content = generar_csv_datos_visibles(data)
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     
@@ -1219,7 +1321,6 @@ def exportar_excel(n_clicks, ciudad, estado, mes, dia, categoria, rango, start, 
     if not n_clicks:
         raise PreventUpdate
     
-    # Aplicar filtros
     data = df.copy()
     
     if estado != 'Todos':
@@ -1242,7 +1343,6 @@ def exportar_excel(n_clicks, ciudad, estado, mes, dia, categoria, rango, start, 
     except:
         pass
     
-    # Generar Excel con datos visibles
     excel_base64 = generar_excel_datos_visibles(data)
     timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
     
@@ -1273,7 +1373,6 @@ def exportar_pdf(btn_pdf, btn_informe, ciudad, estado, mes, dia, categoria, rang
     if not ctx.triggered:
         raise PreventUpdate
     
-    # Aplicar filtros
     data = df.copy()
     
     if estado != 'Todos':
@@ -2088,7 +2187,7 @@ def mostrar_evento(*args):
     return resultado
 
 # ============================================
-# 16. EJECUCIÓN
+# 18. EJECUCIÓN
 # ============================================
 def abrir_navegador():
     webbrowser.open('http://127.0.0.1:8050')
@@ -2102,6 +2201,7 @@ if __name__ == '__main__':
     print(f"\n🎉 Eventos con datos ({len(eventos_con_datos)}):")
     for e in eventos_con_datos:
         print(f"   • {e}: {len(df[df['Evento'] == e]):,} registros")
+    
     print("\n✅ Pestañas: GENERAL | COMPARADOR | PRODUCTO | HORAS | EVENTOS | COMPLEMENTOS | PROPUESTAS")
     print("\n✅ EXPORTACIÓN DE DATOS VISIBLES: CSV | Excel | PDF | Informe Completo")
     print("\n" + "="*80)
