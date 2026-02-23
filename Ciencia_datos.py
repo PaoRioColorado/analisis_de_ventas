@@ -6,13 +6,6 @@
                     PANEL DE VENTAS 2019 - VERSIÓN FINAL
 ================================================================================
 Desarrollado por: Paola Dueña - Data Analyst
-Versión: 50.1.0 - GRÁFICOS CORREGIDOS + MEJORAS
-================================================================================
-Mejoras implementadas:
-    • Consistencia en filtros temporales
-    • Nuevo gráfico de distribución en comparador
-    • Análisis de variación mensual por estado
-    • Documentación mejorada
 ================================================================================
 """
 
@@ -33,17 +26,42 @@ from collections import Counter
 from itertools import combinations
 import sys
 import warnings
+import io
+import base64
+import json
+import plotly.io as pio
+from dash.exceptions import PreventUpdate
+
+try:
+    import xlsxwriter
+    EXCEL_AVAILABLE = True
+except ImportError:
+    EXCEL_AVAILABLE = False
+    print("⚠️ xlsxwriter no instalado. La exportación a Excel usará formato básico.")
+    print("   Para mejor rendimiento: pip install xlsxwriter")
+
+try:
+    from reportlab.lib import colors
+    from reportlab.lib.pagesizes import letter
+    from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.lib.units import inch
+    PDF_AVAILABLE = True
+except ImportError:
+    PDF_AVAILABLE = False
+    print("⚠️ reportlab no instalado. La exportación a PDF estará deshabilitada.")
+    print("   Para instalarlo: pip install reportlab")
+
 warnings.filterwarnings('ignore')
 
 print("="*80)
 print("PANEL DE VENTAS 2019 - VERSIÓN FINAL".center(80))
 print("="*80)
 print("Desarrollado por: Paola Dueña - Data Analyst".center(80))
-print("Versión: 50.1.0 - CON MEJORAS".center(80))
 print("="*80)
 
 # ============================================
-# 1. CARGA DE DATOS REALES
+# 1. CARGA DE DATOS
 # ============================================
 print("\n📂 INICIALIZANDO DATA WAREHOUSE...")
 
@@ -93,26 +111,17 @@ print(f"\n   ✅ TOTAL: {len(df):,} registros procesados")
 # ============================================
 print("\n🔄 PROCESANDO DATOS...")
 
-# Convertir columnas numéricas
 df['Cantidad Pedida'] = pd.to_numeric(df['Cantidad Pedida'], errors='coerce')
 df['Precio Unitario'] = pd.to_numeric(df['Precio Unitario'], errors='coerce')
-
-# Eliminar filas con valores inválidos
 df = df.dropna(subset=['Cantidad Pedida', 'Precio Unitario'])
 df = df[(df['Cantidad Pedida'] > 0) & (df['Precio Unitario'] > 0)]
-
-# Calcular ingresos
 df['Ingreso Total'] = df['Cantidad Pedida'] * df['Precio Unitario']
 
-# Procesar fechas
 print("   • Procesando fechas...")
 df['Fecha de Pedido'] = df['Fecha de Pedido'].astype(str)
 df['Fecha Pedido'] = pd.to_datetime(df['Fecha de Pedido'], format='%m/%d/%y %H:%M', errors='coerce')
-
-# Eliminar filas con fechas inválidas
 df = df.dropna(subset=['Fecha Pedido'])
 
-# Extraer componentes de fecha
 df['Fecha'] = df['Fecha Pedido'].dt.date
 df['Mes Num'] = df['Fecha Pedido'].dt.month
 df['Día'] = df['Fecha Pedido'].dt.day
@@ -121,14 +130,12 @@ df['Día Semana'] = df['Fecha Pedido'].dt.dayofweek
 df['Semana'] = df['Fecha Pedido'].dt.isocalendar().week
 df['Día del Año'] = df['Fecha Pedido'].dt.dayofyear
 
-# Mapas de meses
 mapa_meses = {
     1: 'Enero', 2: 'Febrero', 3: 'Marzo', 4: 'Abril', 5: 'Mayo', 6: 'Junio',
     7: 'Julio', 8: 'Agosto', 9: 'Septiembre', 10: 'Octubre', 11: 'Noviembre', 12: 'Diciembre'
 }
 df['Mes'] = df['Mes Num'].map(mapa_meses)
 
-# Días en español
 dias_espanol = {
     'Monday': 'Lunes', 'Tuesday': 'Martes', 'Wednesday': 'Miércoles',
     'Thursday': 'Jueves', 'Friday': 'Viernes', 'Saturday': 'Sábado', 'Sunday': 'Domingo'
@@ -184,7 +191,6 @@ def asignar_categoria(producto):
 
 df['Categoría'] = df['Producto'].apply(asignar_categoria)
 
-# Rangos de precio
 df['Rango Precio'] = pd.cut(df['Precio Unitario'], 
                             bins=[0, 20, 100, 500, 1000, 10000],
                             labels=['Económico', 'Medio', 'Premium', 'Alta Gama', 'Lujo'])
@@ -207,7 +213,6 @@ estados_usa = {
     'VA': 'Virginia', 'WA': 'Washington', 'WV': 'West Virginia', 'WI': 'Wisconsin', 'WY': 'Wyoming'
 }
 
-# Códigos inversos para el mapa
 codigos_estados = {v: k for k, v in estados_usa.items()}
 codigos_estados['Desconocido'] = 'NA'
 
@@ -246,7 +251,6 @@ def identificar_evento(fecha):
 print("   • Identificando eventos en los datos...")
 df['Evento'] = df['Fecha Pedido'].apply(identificar_evento)
 
-# Ver qué eventos tienen datos
 eventos_con_datos = []
 for evento in eventos.keys():
     count = len(df[df['Evento'] == evento])
@@ -271,7 +275,6 @@ ESTADO_TOP = df.groupby('Estado Nombre')['Ingreso Total'].sum().idxmax() if not 
 HORA_PICO = df.groupby('Hora')['ID de Pedido'].nunique().idxmax() if not df.empty else 0
 DIA_PICO = df.groupby('Día Semana Nombre')['ID de Pedido'].nunique().idxmax() if not df.empty else "N/A"
 
-# Crecimiento anual
 ventas_por_mes = df.groupby('Mes Num')['Ingreso Total'].sum()
 if len(ventas_por_mes) > 1:
     CRECIMIENTO_ANUAL = ((ventas_por_mes.iloc[-1] - ventas_por_mes.iloc[0]) / ventas_por_mes.iloc[0] * 100)
@@ -289,16 +292,6 @@ print(f"   • Crecimiento: {CRECIMIENTO_ANUAL:+.1f}%")
 # 8. FUNCIÓN PRODUCTO ESTRELLA
 # ============================================
 def analizar_producto_estrella(data, filtro_temporal):
-    """
-    Analiza el producto más vendido en un conjunto de datos filtrado.
-    
-    Parámetros:
-        data (DataFrame): Datos filtrados
-        filtro_temporal (str): Descripción del filtro aplicado
-    
-    Retorna:
-        dict: Información detallada del producto estrella o None si no hay datos
-    """
     if data.empty or len(data) < 10:
         return None
     
@@ -316,24 +309,17 @@ def analizar_producto_estrella(data, filtro_temporal):
             return None
         
         producto_top = ventas_productos.iloc[0]
-        
         total_unidades = ventas_productos['Cantidad Pedida'].sum()
         share_producto = (producto_top['Cantidad Pedida'] / total_unidades * 100) if total_unidades > 0 else 0
-        
         precio_promedio = data['Precio Unitario'].mean()
         comparacion_precio = ((producto_top['Precio Unitario'] - precio_promedio) / precio_promedio * 100) if precio_promedio > 0 else 0
         
-        # Análisis de estacionalidad
         datos_producto = data[data['Producto'] == producto_top['Producto']]
         ventas_por_mes_prod = datos_producto.groupby('Mes')['Cantidad Pedida'].sum()
         mes_pico = ventas_por_mes_prod.idxmax() if not ventas_por_mes_prod.empty else "N/A"
-        
-        # Análisis de ubicación
         ciudades_top_prod = datos_producto.groupby('Ciudad')['Cantidad Pedida'].sum().nlargest(3).index.tolist()
         
-        # Generar insights
         insights = []
-        
         if share_producto > 20:
             insights.append(f"🔥 DOMINANTE: {share_producto:.1f}% de participación")
         elif share_producto > 10:
@@ -355,7 +341,6 @@ def analizar_producto_estrella(data, filtro_temporal):
         else:
             insights.append(f"📦 BAJO VOLUMEN: {producto_top['Cantidad Pedida']:,.0f} unidades")
         
-        # Factores de éxito
         factores_exito = [
             f"📅 Pico de ventas: {mes_pico}",
             f"📍 Principales ciudades: {', '.join(ciudades_top_prod[:2])}",
@@ -384,15 +369,6 @@ def analizar_producto_estrella(data, filtro_temporal):
 # 9. FUNCIÓN PARA PRODUCTOS COMPLEMENTARIOS
 # ============================================
 def analizar_productos_complementarios(data):
-    """
-    Analiza qué productos se compran juntos con frecuencia.
-    
-    Parámetros:
-        data (DataFrame): Datos de ventas
-    
-    Retorna:
-        list: Top 5 pares de productos complementarios
-    """
     if data.empty or len(data) < 100:
         return []
     
@@ -415,74 +391,230 @@ def analizar_productos_complementarios(data):
         return []
 
 # ============================================
-# 10. FUNCIÓN PARA GENERAR INFORMES
+# 10. FUNCIONES DE EXPORTACIÓN (DATOS VISIBLES)
 # ============================================
-def generar_informe_html(titulo, data, tablas=None):
-    """Genera un informe HTML para exportar"""
-    
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    html_content = f"""
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>{titulo} - Panel de Ventas 2019</title>
-        <style>
-            body {{ font-family: Arial, sans-serif; margin: 40px; }}
-            h1 {{ color: #2c3e50; border-bottom: 2px solid #3498db; }}
-            h2 {{ color: #34495e; margin-top: 30px; }}
-            table {{ border-collapse: collapse; width: 100%; margin: 20px 0; }}
-            th, td {{ border: 1px solid #ddd; padding: 8px; text-align: left; }}
-            th {{ background-color: #3498db; color: white; }}
-            .kpi-card {{ display: inline-block; background: #f8f9fa; padding: 15px; margin: 10px; border-radius: 5px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }}
-            .kpi-value {{ font-size: 24px; font-weight: bold; color: #2c3e50; }}
-            .kpi-label {{ font-size: 14px; color: #7f8c8d; }}
-            .footer {{ margin-top: 50px; font-size: 12px; color: #7f8c8d; text-align: center; }}
-        </style>
-    </head>
-    <body>
-        <h1>{titulo}</h1>
-        <p>Generado el: {timestamp}</p>
-        <p>Período analizado: {data['Fecha'].min()} a {data['Fecha'].max()}</p>
-        <p>Total de registros: {len(data):,}</p>
+
+def generar_excel_datos_visibles(data):
+    """Genera Excel con los mismos datos agregados que se ven en los gráficos"""
+    try:
+        output = io.BytesIO()
         
-        <h2>KPIs Principales</h2>
-        <div>
-            <div class="kpi-card">
-                <div class="kpi-label">Ingresos Totales</div>
-                <div class="kpi-value">${data['Ingreso Total'].sum():,.0f}</div>
-            </div>
-            <div class="kpi-card">
-                <div class="kpi-label">Pedidos</div>
-                <div class="kpi-value">{data['ID de Pedido'].nunique():,}</div>
-            </div>
-            <div class="kpi-card">
-                <div class="kpi-label">Unidades Vendidas</div>
-                <div class="kpi-value">{data['Cantidad Pedida'].sum():,}</div>
-            </div>
-            <div class="kpi-card">
-                <div class="kpi-label">Ticket Promedio</div>
-                <div class="kpi-value">${data['Ingreso Total'].sum() / data['ID de Pedido'].nunique():,.2f}</div>
-            </div>
-        </div>
-    """
+        with pd.ExcelWriter(output, engine='xlsxwriter' if EXCEL_AVAILABLE else 'openpyxl') as writer:
+            # Resumen ejecutivo
+            resumen = pd.DataFrame({
+                'Métrica': ['Total Ingresos', 'Total Pedidos', 'Total Unidades', 'Ticket Promedio', 'Período'],
+                'Valor': [
+                    f"${data['Ingreso Total'].sum():,.0f}",
+                    f"{data['ID de Pedido'].nunique():,}",
+                    f"{data['Cantidad Pedida'].sum():,}",
+                    f"${data['Ingreso Total'].sum() / data['ID de Pedido'].nunique():,.2f}",
+                    f"{data['Fecha'].min()} a {data['Fecha'].max()}"
+                ]
+            })
+            resumen.to_excel(writer, sheet_name='Resumen Ejecutivo', index=False)
+            
+            # Ventas por mes (lo que se ve en el gráfico)
+            ventas_mes = data.groupby('Mes').agg({
+                'Ingreso Total': 'sum',
+                'ID de Pedido': 'nunique',
+                'Cantidad Pedida': 'sum'
+            }).reset_index()
+            # Ordenar por mes
+            orden_meses = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
+            ventas_mes['Mes'] = pd.Categorical(ventas_mes['Mes'], categories=orden_meses, ordered=True)
+            ventas_mes = ventas_mes.sort_values('Mes')
+            ventas_mes.to_excel(writer, sheet_name='Ventas por Mes', index=False)
+            
+            # Top 10 ciudades (lo que se ve en el gráfico)
+            ventas_ciudad = data.groupby('Ciudad').agg({
+                'Ingreso Total': 'sum',
+                'ID de Pedido': 'nunique'
+            }).reset_index().sort_values('Ingreso Total', ascending=False).head(10)
+            ventas_ciudad.to_excel(writer, sheet_name='Top 10 Ciudades', index=False)
+            
+            # Ventas por estado (lo que se ve en el mapa)
+            ventas_estado = data.groupby('Estado Nombre').agg({
+                'Ingreso Total': 'sum',
+                'ID de Pedido': 'nunique'
+            }).reset_index().sort_values('Ingreso Total', ascending=False)
+            ventas_estado.to_excel(writer, sheet_name='Ventas por Estado', index=False)
+            
+            # Ventas por hora (lo que se ve en el gráfico)
+            ventas_hora = data.groupby('Hora').agg({
+                'ID de Pedido': 'nunique',
+                'Ingreso Total': 'sum'
+            }).reset_index().sort_values('Hora')
+            ventas_hora.to_excel(writer, sheet_name='Ventas por Hora', index=False)
+            
+            # Ventas por día (lo que se ve en el gráfico)
+            ventas_dia = data.groupby('Día Semana Nombre').agg({
+                'ID de Pedido': 'nunique',
+                'Ingreso Total': 'sum'
+            }).reset_index()
+            # Ordenar por día
+            orden_dias = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo']
+            ventas_dia['Día Semana Nombre'] = pd.Categorical(ventas_dia['Día Semana Nombre'], categories=orden_dias, ordered=True)
+            ventas_dia = ventas_dia.sort_values('Día Semana Nombre')
+            ventas_dia.to_excel(writer, sheet_name='Ventas por Día', index=False)
+            
+            # Top 20 productos (lo que se ve en análisis)
+            top_productos = data.groupby('Producto').agg({
+                'Cantidad Pedida': 'sum',
+                'Ingreso Total': 'sum'
+            }).reset_index().sort_values('Cantidad Pedida', ascending=False).head(20)
+            top_productos.to_excel(writer, sheet_name='Top 20 Productos', index=False)
+            
+            # Producto por mes (tabla visible)
+            prods_mes = data.groupby(['Mes','Producto'])['Cantidad Pedida'].sum().reset_index()
+            idx = prods_mes.groupby('Mes')['Cantidad Pedida'].idxmax()
+            top_mes = prods_mes.loc[idx].reset_index(drop=True)
+            top_mes['Mes'] = pd.Categorical(top_mes['Mes'], categories=orden_meses, ordered=True)
+            top_mes = top_mes.sort_values('Mes')
+            top_mes.to_excel(writer, sheet_name='Producto Estrella por Mes', index=False)
+            
+            # Productos complementarios
+            top_pares = analizar_productos_complementarios(data)
+            if top_pares:
+                pares_data = []
+                for (a, b), c in top_pares:
+                    pares_data.append({'Producto A': a, 'Producto B': b, 'Frecuencia': c})
+                pares_df = pd.DataFrame(pares_data)
+                pares_df.to_excel(writer, sheet_name='Productos Complementarios', index=False)
+            
+        return base64.b64encode(output.getvalue()).decode('utf-8')
     
-    if tablas:
-        for titulo_tabla, df_tabla in tablas.items():
-            if df_tabla is not None and not df_tabla.empty:
-                html_content += f"<h2>{titulo_tabla}</h2>"
-                html_content += df_tabla.to_html(index=False, classes="table table-striped")
+    except Exception as e:
+        print(f"Error generando Excel: {e}")
+        return None
+
+def generar_csv_datos_visibles(data):
+    """Genera CSV con los datos agregados que se ven en pantalla"""
+    output = io.StringIO()
     
-    html_content += """
-        <div class="footer">
-            Informe generado automáticamente por el Panel de Ventas 2019<br>
-            Desarrollado por Paola Dueña - Data Analyst
-        </div>
-    </body>
-    </html>
-    """
+    output.write("=== RESUMEN EJECUTIVO ===\n")
+    output.write(f"Total Ingresos,${data['Ingreso Total'].sum():,.0f}\n")
+    output.write(f"Total Pedidos,{data['ID de Pedido'].nunique():,}\n")
+    output.write(f"Total Unidades,{data['Cantidad Pedida'].sum():,}\n")
+    output.write(f"Ticket Promedio,${data['Ingreso Total'].sum() / data['ID de Pedido'].nunique():,.2f}\n")
+    output.write(f"Período,{data['Fecha'].min()} a {data['Fecha'].max()}\n\n")
     
-    return html_content
+    output.write("=== VENTAS POR MES ===\n")
+    ventas_mes = data.groupby('Mes')['Ingreso Total'].sum()
+    for mes, valor in ventas_mes.items():
+        output.write(f"{mes},${valor:,.0f}\n")
+    output.write("\n")
+    
+    output.write("=== TOP 10 CIUDADES ===\n")
+    top_ciudades = data.groupby('Ciudad')['Ingreso Total'].sum().nlargest(10)
+    for ciudad, valor in top_ciudades.items():
+        output.write(f"{ciudad},${valor:,.0f}\n")
+    output.write("\n")
+    
+    output.write("=== VENTAS POR HORA ===\n")
+    ventas_hora = data.groupby('Hora')['ID de Pedido'].nunique()
+    for hora, pedidos in ventas_hora.items():
+        output.write(f"{hora}:00,{pedidos} pedidos\n")
+    output.write("\n")
+    
+    output.write("=== VENTAS POR DÍA ===\n")
+    ventas_dia = data.groupby('Día Semana Nombre')['ID de Pedido'].nunique()
+    orden_dias = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo']
+    for dia in orden_dias:
+        if dia in ventas_dia.index:
+            output.write(f"{dia},{ventas_dia[dia]} pedidos\n")
+    
+    return output.getvalue()
+
+def generar_informe_pdf_datos_visibles(data, titulo):
+    """Genera un informe PDF con los datos agregados visibles"""
+    if not PDF_AVAILABLE:
+        return None
+    
+    try:
+        import tempfile
+        with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp:
+            pdf_path = tmp.name
+        
+        doc = SimpleDocTemplate(pdf_path, pagesize=letter)
+        story = []
+        styles = getSampleStyleSheet()
+        
+        title_style = ParagraphStyle(
+            'CustomTitle',
+            parent=styles['Heading1'],
+            fontSize=16,
+            spaceAfter=30,
+            alignment=1
+        )
+        story.append(Paragraph(titulo, title_style))
+        story.append(Spacer(1, 12))
+        
+        fecha_style = ParagraphStyle(
+            'Fecha',
+            parent=styles['Normal'],
+            fontSize=10,
+            textColor=colors.gray
+        )
+        story.append(Paragraph(f"Generado: {datetime.now().strftime('%d/%m/%Y %H:%M')}", fecha_style))
+        story.append(Spacer(1, 20))
+        
+        # KPIs
+        kpi_data = [
+            ['Métrica', 'Valor'],
+            ['Ingresos Totales', f'${data["Ingreso Total"].sum():,.0f}'],
+            ['Total Pedidos', f'{data["ID de Pedido"].nunique():,}'],
+            ['Unidades Vendidas', f'{data["Cantidad Pedida"].sum():,}'],
+            ['Ticket Promedio', f'${data["Ingreso Total"].sum() / data["ID de Pedido"].nunique():,.2f}'],
+            ['Producto más vendido', data.groupby('Producto')['Cantidad Pedida'].sum().idxmax()[:40]],
+            ['Hora pico', f"{data.groupby('Hora')['ID de Pedido'].nunique().idxmax()}:00"],
+            ['Mejor día', data.groupby('Día Semana Nombre')['ID de Pedido'].nunique().idxmax()]
+        ]
+        
+        kpi_table = Table(kpi_data, colWidths=[2.5*inch, 3.5*inch])
+        kpi_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 12),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black)
+        ]))
+        story.append(kpi_table)
+        story.append(Spacer(1, 20))
+        
+        story.append(Paragraph("Resumen Ejecutivo", styles['Heading2']))
+        story.append(Spacer(1, 12))
+        
+        # Top productos
+        top_prod = data.groupby('Producto')['Cantidad Pedida'].sum().nlargest(5).reset_index()
+        top_prod.columns = ['Producto', 'Unidades']
+        
+        prod_data = [['Top 5 Productos', 'Unidades Vendidas']]
+        for _, row in top_prod.iterrows():
+            prod_data.append([row['Producto'][:30], f"{row['Unidades']:,}"])
+        
+        prod_table = Table(prod_data, colWidths=[4*inch, 1.5*inch])
+        prod_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black)
+        ]))
+        story.append(prod_table)
+        
+        doc.build(story)
+        
+        with open(pdf_path, 'rb') as f:
+            pdf_bytes = f.read()
+        
+        os.unlink(pdf_path)
+        return base64.b64encode(pdf_bytes).decode('utf-8')
+    
+    except Exception as e:
+        print(f"Error generando PDF: {e}")
+        return None
 
 # ============================================
 # 11. CONFIGURACIÓN DASHBOARD
@@ -492,7 +624,6 @@ print("\n🚀 Inicializando dashboard...")
 app = Dash(__name__, external_stylesheets=[dbc.themes.BOOTSTRAP])
 app.title = "Panel de Ventas 2019"
 
-# Opciones para filtros
 meses_list = ['Todos'] + list(mapa_meses.values())
 estados_list = ['Todos'] + sorted(df['Estado Nombre'].unique())
 ciudades_list = ['Todas'] + sorted(df['Ciudad'].unique())
@@ -500,7 +631,6 @@ categorias_list = ['Todas'] + sorted(df['Categoría'].unique())
 rangos_list = ['Todos'] + ['Económico', 'Medio', 'Premium', 'Alta Gama', 'Lujo']
 dias_list = ['Todos'] + ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo']
 
-# MEJORA: Consistencia en filtros temporales - mismos valores que en el callback
 filtros_temporales = [
     {'label': '🌐 General', 'value': 'General'},
     {'label': '📅 Por Mes', 'value': 'Mes'},
@@ -513,7 +643,6 @@ filtros_temporales = [
 # ============================================
 app.layout = dbc.Container([
     
-    # Header
     dbc.Row([
         dbc.Col([
             html.Div([
@@ -525,7 +654,6 @@ app.layout = dbc.Container([
         ], width=12)
     ], className="mb-4"),
     
-    # Filtros Globales
     dbc.Row([
         dbc.Col([
             dbc.Card([
@@ -583,11 +711,31 @@ app.layout = dbc.Container([
         ], width=12)
     ], className="mb-4"),
     
-    # Pestañas
+    # Barra de exportación
+    dbc.Row([
+        dbc.Col([
+            dbc.Card([
+                dbc.CardBody([
+                    dbc.Row([
+                        dbc.Col([
+                            html.H5("📥 EXPORTAR ANÁLISIS", className="d-inline"),
+                            html.Span(" (Datos visibles en pantalla)", className="text-muted small ms-2"),
+                        ], width=4),
+                        dbc.Col([
+                            dbc.ButtonGroup([
+                                dbc.Button("📊 CSV", id="btn-csv", color="success", className="me-1", size="sm"),
+                                dbc.Button("📗 Excel", id="btn-excel", color="primary", className="me-1", size="sm"),
+                                dbc.Button("📘 PDF", id="btn-pdf", color="danger", className="me-1", size="sm", disabled=not PDF_AVAILABLE),
+                                dbc.Button("📑 Informe Completo", id="btn-informe", color="info", size="sm"),
+                            ]),
+                        ], width=8),
+                    ]),
+                ])
+            ], className="shadow-sm bg-light")
+        ], width=12)
+    ], className="mb-4"),
+    
     dbc.Tabs([
-        # ========================================
-        # PESTAÑA 1: VISIÓN GENERAL
-        # ========================================
         dbc.Tab([
             dbc.Row([
                 dbc.Col([
@@ -617,7 +765,6 @@ app.layout = dbc.Container([
                 dbc.Col(dbc.Card([dbc.CardHeader("🗺️ Mapa de Estados"), dbc.CardBody(dcc.Graph(id='mapa-estados'))]), width=6)
             ], className="mb-4"),
             
-            # MEJORA: Nuevo gráfico de variación mensual por estado
             dbc.Row([
                 dbc.Col(dbc.Card([
                     dbc.CardHeader("📊 Variación Mensual por Estado (Top 5)"), 
@@ -629,12 +776,13 @@ app.layout = dbc.Container([
                 dbc.Col(dbc.Card([dbc.CardHeader("🎯 RESUMEN EJECUTIVO", className="bg-warning text-dark"), dbc.CardBody(id='resumen')]), width=12)
             ]),
             
-            dcc.Download(id="download-general")
+            dcc.Download(id="download-csv"),
+            dcc.Download(id="download-excel"),
+            dcc.Download(id="download-pdf"),
+            dcc.Download(id="download-informe"),
+            
         ], label="📊 GENERAL"),
         
-        # ========================================
-        # PESTAÑA 2: COMPARADOR DE MESES
-        # ========================================
         dbc.Tab([
             dbc.Row([
                 dbc.Col([
@@ -680,12 +828,8 @@ app.layout = dbc.Container([
                 dbc.Col(dbc.Card([dbc.CardHeader("📋 Tabla Comparativa Detallada"), dbc.CardBody(id='comp-tabla')]), width=12)
             ]),
             
-            dcc.Download(id="download-comparador")
         ], label="📅 COMPARADOR"),
         
-        # ========================================
-        # PESTAÑA 3: PRODUCTO ESTRELLA
-        # ========================================
         dbc.Tab([
             dbc.Row([
                 dbc.Col([
@@ -717,12 +861,8 @@ app.layout = dbc.Container([
                 dbc.Col(dbc.Card([dbc.CardHeader("🏆 Producto por Mes"), dbc.CardBody(id='tabla-prod-mes')]), width=12)
             ]),
             
-            dcc.Download(id="download-producto")
         ], label="🏆 PRODUCTO"),
         
-        # ========================================
-        # PESTAÑA 4: ANÁLISIS DE HORAS
-        # ========================================
         dbc.Tab([
             dbc.Row([
                 dbc.Col([
@@ -745,15 +885,18 @@ app.layout = dbc.Container([
             
             dbc.Row([
                 dbc.Col(dbc.Card([dbc.CardHeader("🔥 Mapa de Calor"), dbc.CardBody(dcc.Graph(id='graf-heatmap'))]), width=6),
-                dbc.Col(dbc.Card([dbc.CardHeader("📆 Ventas por Día"), dbc.CardBody(dcc.Graph(id='graf-dias'))]), width=6)
+                dbc.Col(dbc.Card([
+                    dbc.CardHeader("📆 Ventas por Día"), 
+                    dbc.CardBody([
+                        dcc.Graph(id='graf-dias'),
+                        html.P("👆 Haz clic en cualquier barra para ver los productos más vendidos en ese día", 
+                               className="text-info text-center small mt-2")
+                    ])
+                ]), width=6)
             ]),
             
-            dcc.Download(id="download-horas")
         ], label="⏰ HORAS"),
         
-        # ========================================
-        # PESTAÑA 5: EVENTOS ESPECIALES
-        # ========================================
         dbc.Tab([
             dbc.Row([
                 dbc.Col([
@@ -770,9 +913,6 @@ app.layout = dbc.Container([
             ])
         ], label="🎉 EVENTOS"),
         
-        # ========================================
-        # PESTAÑA 6: PRODUCTOS COMPLEMENTARIOS
-        # ========================================
         dbc.Tab([
             dbc.Row([
                 dbc.Col([
@@ -793,12 +933,8 @@ app.layout = dbc.Container([
                 ], width=12)
             ]),
             
-            dcc.Download(id="download-complementos")
         ], label="🔄 COMPLEMENTOS"),
         
-        # ========================================
-        # PESTAÑA 7: PROPUESTAS ESTRATÉGICAS
-        # ========================================
         dbc.Tab([
             dbc.Row([
                 dbc.Col([
@@ -809,19 +945,22 @@ app.layout = dbc.Container([
                 ], width=12)
             ]),
             
-            dcc.Download(id="download-propuestas")
         ], label="📋 PROPUESTAS"),
         
     ], className="mb-4"),
     
-    # Modales
     dbc.Modal([
         dbc.ModalHeader(dbc.ModalTitle(id="modal-horas-titulo")),
         dbc.ModalBody(id="modal-horas-contenido"),
         dbc.ModalFooter(dbc.Button("Cerrar", id="cerrar-modal-horas", className="ms-auto")),
     ], id="modal-horas", size="xl"),
     
-    # Footer
+    dbc.Modal([
+        dbc.ModalHeader(dbc.ModalTitle(id="modal-dias-titulo")),
+        dbc.ModalBody(id="modal-dias-contenido"),
+        dbc.ModalFooter(dbc.Button("Cerrar", id="cerrar-modal-dias", className="ms-auto")),
+    ], id="modal-dias", size="xl"),
+    
     dbc.Row([
         dbc.Col([
             html.Hr(),
@@ -862,7 +1001,6 @@ for i, evento in enumerate(eventos_con_datos):
 # 14. FUNCIÓN PARA GENERAR PROPUESTAS
 # ============================================
 def generar_propuestas():
-    """Genera el contenido de la pestaña de propuestas estratégicas"""
     return html.Div([
         html.H4("🎯 RESUMEN EJECUTIVO", className="text-primary mt-4"),
         html.P("El análisis de ventas 2019 revela oportunidades significativas de crecimiento:", className="lead"),
@@ -877,7 +1015,6 @@ def generar_propuestas():
         ),
         html.Hr(),
         
-        # PROPUESTA 1
         dbc.Card([
             dbc.CardHeader([html.H5("📋 PROPUESTA 1: OPTIMIZACIÓN PUBLICITARIA"), dbc.Badge("ROI 300%", color="success", className="ms-2"), html.Span(" | Inversión: $50,000", className="ms-2 text-muted small")], className="bg-light"),
             dbc.CardBody([
@@ -898,7 +1035,6 @@ def generar_propuestas():
             ])
         ], className="shadow-sm mb-3 border-start border-primary border-4"),
         
-        # PROPUESTA 2
         dbc.Card([
             dbc.CardHeader([html.H5("📦 PROPUESTA 2: VENTA CRUZADA"), dbc.Badge("ROI 500%", color="success", className="ms-2"), html.Span(" | Inversión: $20,000", className="ms-2 text-muted small")], className="bg-light"),
             dbc.CardBody([
@@ -919,7 +1055,6 @@ def generar_propuestas():
             ])
         ], className="shadow-sm mb-3 border-start border-success border-4"),
         
-        # PROPUESTA 3
         dbc.Card([
             dbc.CardHeader([html.H5("📅 PROPUESTA 3: CALENDARIO DE PROMOCIONES"), dbc.Badge("ROI 400%", color="success", className="ms-2"), html.Span(" | Inversión: $30,000", className="ms-2 text-muted small")], className="bg-light"),
             dbc.CardBody([
@@ -952,7 +1087,6 @@ def generar_propuestas():
      Input('reset', 'n_clicks')]
 )
 def update_ciudades(estado, reset):
-    """Actualiza las opciones de ciudad según el estado seleccionado"""
     ctx = dash.callback_context
     if ctx.triggered and 'reset' in ctx.triggered[0]['prop_id']:
         return [{'label':'Todas','value':'Todas'}] + [{'label':c,'value':c} for c in sorted(df['Ciudad'].unique())], 'Todas'
@@ -976,7 +1110,6 @@ def update_ciudades(estado, reset):
     Input('reset', 'n_clicks')
 )
 def reset_filtros(n_clicks):
-    """Resetea todos los filtros a sus valores por defecto"""
     if not n_clicks:
         return [no_update] * 9
     return ('Todos','Todos','Todos','Todas','Todos', df['Fecha'].min(), df['Fecha'].max(), 'General', ['Enero','Febrero','Marzo'])
@@ -987,7 +1120,6 @@ def reset_filtros(n_clicks):
     Input('filtro-prod', 'value')
 )
 def update_titulos_prod(f):
-    """Actualiza los títulos según el filtro de producto seleccionado"""
     if f == 'General':
         return "🌐 Análisis Global", "🔍 FACTORES DE ÉXITO"
     elif f == 'Mes':
@@ -1002,7 +1134,6 @@ def update_titulos_prod(f):
     Input('propuestas-content', 'id')
 )
 def update_propuestas(_):
-    """Actualiza el contenido de la pestaña de propuestas"""
     return generar_propuestas()
 
 @callback(
@@ -1010,12 +1141,182 @@ def update_propuestas(_):
     Input('botones-eventos', 'id')
 )
 def mostrar_botones(_):
-    """Muestra los botones de eventos"""
     return botones_eventos
 
-# ========================================
+# ============================================
+# CALLBACKS DE EXPORTACIÓN (DATOS VISIBLES)
+# ============================================
+
+def obtener_datos_filtrados():
+    """Obtiene los datos actuales según los filtros del dashboard"""
+    # Este callback se llama desde los botones de exportación
+    # Usamos los valores actuales de los filtros
+    return df  # En un caso real, aquí aplicarías los filtros
+
+@callback(
+    Output("download-csv", "data"),
+    Input("btn-csv", "n_clicks"),
+    [State('ciudad', 'value'),
+     State('estado', 'value'),
+     State('mes', 'value'),
+     State('dia', 'value'),
+     State('categoria', 'value'),
+     State('rango', 'value'),
+     State('fechas', 'start_date'),
+     State('fechas', 'end_date')],
+    prevent_initial_call=True
+)
+def exportar_csv(n_clicks, ciudad, estado, mes, dia, categoria, rango, start, end):
+    if not n_clicks:
+        raise PreventUpdate
+    
+    # Aplicar filtros
+    data = df.copy()
+    
+    if estado != 'Todos':
+        data = data[data['Estado Nombre'] == estado]
+    if ciudad != 'Todas':
+        data = data[data['Ciudad'] == ciudad]
+    if mes != 'Todos':
+        data = data[data['Mes'] == mes]
+    if dia != 'Todos':
+        data = data[data['Día Semana Nombre'] == dia]
+    if categoria != 'Todas':
+        data = data[data['Categoría'] == categoria]
+    if rango != 'Todos':
+        data = data[data['Rango Precio'] == rango]
+    
+    try:
+        start_date = pd.to_datetime(start).date()
+        end_date = pd.to_datetime(end).date()
+        data = data[(data['Fecha'] >= start_date) & (data['Fecha'] <= end_date)]
+    except:
+        pass
+    
+    # Generar CSV con datos visibles
+    csv_content = generar_csv_datos_visibles(data)
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    
+    return dcc.send_string(
+        csv_content,
+        f"analisis_ventas_{timestamp}.csv"
+    )
+
+@callback(
+    Output("download-excel", "data"),
+    Input("btn-excel", "n_clicks"),
+    [State('ciudad', 'value'),
+     State('estado', 'value'),
+     State('mes', 'value'),
+     State('dia', 'value'),
+     State('categoria', 'value'),
+     State('rango', 'value'),
+     State('fechas', 'start_date'),
+     State('fechas', 'end_date')],
+    prevent_initial_call=True
+)
+def exportar_excel(n_clicks, ciudad, estado, mes, dia, categoria, rango, start, end):
+    if not n_clicks:
+        raise PreventUpdate
+    
+    # Aplicar filtros
+    data = df.copy()
+    
+    if estado != 'Todos':
+        data = data[data['Estado Nombre'] == estado]
+    if ciudad != 'Todas':
+        data = data[data['Ciudad'] == ciudad]
+    if mes != 'Todos':
+        data = data[data['Mes'] == mes]
+    if dia != 'Todos':
+        data = data[data['Día Semana Nombre'] == dia]
+    if categoria != 'Todas':
+        data = data[data['Categoría'] == categoria]
+    if rango != 'Todos':
+        data = data[data['Rango Precio'] == rango]
+    
+    try:
+        start_date = pd.to_datetime(start).date()
+        end_date = pd.to_datetime(end).date()
+        data = data[(data['Fecha'] >= start_date) & (data['Fecha'] <= end_date)]
+    except:
+        pass
+    
+    # Generar Excel con datos visibles
+    excel_base64 = generar_excel_datos_visibles(data)
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    
+    if excel_base64:
+        return dcc.send_bytes(
+            base64.b64decode(excel_base64),
+            f"analisis_ventas_{timestamp}.xlsx"
+        )
+    raise PreventUpdate
+
+@callback(
+    [Output("download-pdf", "data"),
+     Output("download-informe", "data")],
+    [Input("btn-pdf", "n_clicks"),
+     Input("btn-informe", "n_clicks")],
+    [State('ciudad', 'value'),
+     State('estado', 'value'),
+     State('mes', 'value'),
+     State('dia', 'value'),
+     State('categoria', 'value'),
+     State('rango', 'value'),
+     State('fechas', 'start_date'),
+     State('fechas', 'end_date')],
+    prevent_initial_call=True
+)
+def exportar_pdf(btn_pdf, btn_informe, ciudad, estado, mes, dia, categoria, rango, start, end):
+    ctx = dash.callback_context
+    if not ctx.triggered:
+        raise PreventUpdate
+    
+    # Aplicar filtros
+    data = df.copy()
+    
+    if estado != 'Todos':
+        data = data[data['Estado Nombre'] == estado]
+    if ciudad != 'Todas':
+        data = data[data['Ciudad'] == ciudad]
+    if mes != 'Todos':
+        data = data[data['Mes'] == mes]
+    if dia != 'Todos':
+        data = data[data['Día Semana Nombre'] == dia]
+    if categoria != 'Todas':
+        data = data[data['Categoría'] == categoria]
+    if rango != 'Todos':
+        data = data[data['Rango Precio'] == rango]
+    
+    try:
+        start_date = pd.to_datetime(start).date()
+        end_date = pd.to_datetime(end).date()
+        data = data[(data['Fecha'] >= start_date) & (data['Fecha'] <= end_date)]
+    except:
+        pass
+    
+    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    
+    if 'btn-pdf' in ctx.triggered[0]['prop_id']:
+        titulo = "Informe de Ventas - Análisis Visual"
+        filename = f"informe_visual_{timestamp}.pdf"
+    else:
+        titulo = "Informe Completo de Ventas 2019"
+        filename = f"informe_completo_{timestamp}.pdf"
+    
+    pdf_base64 = generar_informe_pdf_datos_visibles(data, titulo)
+    
+    if pdf_base64:
+        if 'btn-pdf' in ctx.triggered[0]['prop_id']:
+            return dcc.send_bytes(base64.b64decode(pdf_base64), filename), no_update
+        else:
+            return no_update, dcc.send_bytes(base64.b64decode(pdf_base64), filename)
+    raise PreventUpdate
+
+# ============================================
 # CALLBACK PRINCIPAL
-# ========================================
+# ============================================
 @callback(
     [Output('subtitulo', 'children'),
      Output('kpis', 'children'),
@@ -1026,7 +1327,7 @@ def mostrar_botones(_):
      Output('graf-dias', 'figure'),
      Output('graf-ciudades', 'figure'),
      Output('mapa-estados', 'figure'),
-     Output('graf-estados-mensual', 'figure'),  # MEJORA: Nuevo output
+     Output('graf-estados-mensual', 'figure'),
      Output('resumen', 'children'),
      Output('prod-container', 'children'),
      Output('tabla-prod-mes', 'children'),
@@ -1052,12 +1353,7 @@ def mostrar_botones(_):
      Input('comp-metrica', 'value')]
 )
 def update_dashboard(ciudad, estado, mes, dia, categoria, rango, start, end, filtro_prod, meses_comp, metrica):
-    """
-    Callback principal que actualiza todos los gráficos y componentes del dashboard
-    basándose en los filtros seleccionados.
-    """
     
-    # Aplicar filtros
     data = df.copy()
     
     if estado != 'Todos':
@@ -1082,7 +1378,6 @@ def update_dashboard(ciudad, estado, mes, dia, categoria, rango, start, end, fil
     
     subtitulo = f"📊 {len(data):,} transacciones | {data['Ciudad'].nunique()} ciudades | {data['Producto'].nunique()} productos"
     
-    # Figura vacía
     empty_fig = go.Figure().add_annotation(text="Sin datos", showarrow=False)
     empty_fig.update_layout(height=300)
     
@@ -1098,9 +1393,6 @@ def update_dashboard(ciudad, estado, mes, dia, categoria, rango, start, end, fil
                 empty_fig, empty_fig, empty_fig, empty_resumen, empty_container, empty_table, empty_factores,
                 empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, empty_fig, empty_table, empty_fig)
     
-    # ========================================
-    # KPIs
-    # ========================================
     ingresos = data['Ingreso Total'].sum()
     pedidos = data['ID de Pedido'].nunique()
     unidades = data['Cantidad Pedida'].sum()
@@ -1113,9 +1405,6 @@ def update_dashboard(ciudad, estado, mes, dia, categoria, rango, start, end, fil
         dbc.Col(dbc.Card([dbc.CardBody([html.H6("🏙️ CIUDADES"), html.H3(f"{data['Ciudad'].nunique()}")])], className="border-warning"), width=3),
     ])
     
-    # ========================================
-    # Tendencias
-    # ========================================
     ventas_mes = data.groupby('Mes Num')['Ingreso Total'].sum()
     crecimiento = 0
     if len(ventas_mes) > 1:
@@ -1135,9 +1424,6 @@ def update_dashboard(ciudad, estado, mes, dia, categoria, rango, start, end, fil
         dbc.Col(dbc.Card([dbc.CardBody([html.H6("🏆 PRODUCTO"), html.H6(prod_top[:15], className="text-success")])], className="bg-light"), width=3),
     ])
     
-    # ========================================
-    # Gráfico 1: Ventas por Mes
-    # ========================================
     df_mes = data.groupby('Mes')['Ingreso Total'].sum().reset_index()
     orden = ['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
     df_mes['Mes'] = pd.Categorical(df_mes['Mes'], categories=orden, ordered=True)
@@ -1147,9 +1433,6 @@ def update_dashboard(ciudad, estado, mes, dia, categoria, rango, start, end, fil
                     color='Ingreso Total', color_continuous_scale='Blues', text_auto='.2s')
     fig_mes.update_traces(texttemplate='$%{text:.2s}', textposition='outside')
     
-    # ========================================
-    # Gráfico 2: Tendencia Diaria
-    # ========================================
     diario = data.groupby('Fecha')['Ingreso Total'].sum().reset_index()
     diario['Fecha'] = pd.to_datetime(diario['Fecha'])
     diario = diario.sort_values('Fecha')
@@ -1159,9 +1442,6 @@ def update_dashboard(ciudad, estado, mes, dia, categoria, rango, start, end, fil
                                        mode='lines', line=dict(color='#8e44ad')))
     fig_tendencia.update_layout(title='📈 Tendencia Diaria')
     
-    # ========================================
-    # Gráfico 3: Heatmap
-    # ========================================
     heat = data.groupby(['Hora','Día Semana Nombre']).size().reset_index(name='Pedidos')
     orden_dias = ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo']
     heat['Día Semana Nombre'] = pd.Categorical(heat['Día Semana Nombre'], categories=orden_dias, ordered=True)
@@ -1171,9 +1451,6 @@ def update_dashboard(ciudad, estado, mes, dia, categoria, rango, start, end, fil
                                      title='🔥 Mapa de Calor - Horas Pico',
                                      color_continuous_scale='Viridis')
     
-    # ========================================
-    # Gráfico 4: Ventas por Día
-    # ========================================
     dias = data.groupby(['Día Semana Nombre','Día Semana'])['ID de Pedido'].nunique().reset_index(name='Pedidos')
     dias = dias.sort_values('Día Semana')
     
@@ -1183,18 +1460,12 @@ def update_dashboard(ciudad, estado, mes, dia, categoria, rango, start, end, fil
                               text=dias['Pedidos'], textposition='outside'))
     fig_dias.update_layout(title='📆 Ventas por Día')
     
-    # ========================================
-    # Gráfico 5: Ciudades
-    # ========================================
     top_ciud = data.groupby('Ciudad')['Ingreso Total'].sum().nlargest(10).reset_index()
     fig_ciudades = px.bar(top_ciud, x='Ingreso Total', y='Ciudad', orientation='h',
                           title='🏙️ Top 10 Ciudades', color='Ingreso Total',
                           color_continuous_scale='Reds', text_auto='.2s')
     fig_ciudades.update_traces(texttemplate='$%{text:.2s}')
     
-    # ========================================
-    # Gráfico 6: Mapa de Estados
-    # ========================================
     ventas_estado = data.groupby('Estado Nombre')['Ingreso Total'].sum().reset_index()
     ventas_estado['codigo'] = ventas_estado['Estado Nombre'].map(codigos_estados)
     
@@ -1208,25 +1479,15 @@ def update_dashboard(ciudad, estado, mes, dia, categoria, rango, start, end, fil
     ))
     fig_mapa.update_layout(title='🗺️ Ventas por Estado', geo_scope='usa', height=400)
     
-    # ========================================
-    # MEJORA: Gráfico 7: Variación Mensual por Estado (Top 5)
-    # ========================================
-    # Calcular ventas por estado y mes
     ventas_estado_mes = data.groupby(['Estado Nombre', 'Mes'])['Ingreso Total'].sum().reset_index()
-    
-    # Obtener top 5 estados por ingreso total
     top_estados = data.groupby('Estado Nombre')['Ingreso Total'].sum().nlargest(5).index.tolist()
-    
-    # Filtrar para solo los top 5 estados
     ventas_top = ventas_estado_mes[ventas_estado_mes['Estado Nombre'].isin(top_estados)]
     
-    # Crear gráfico de líneas para ver la evolución mensual
     fig_estados_mensual = go.Figure()
-    
     colores_estados = px.colors.qualitative.Set2
+    
     for i, estado_n in enumerate(top_estados):
         df_estado = ventas_top[ventas_top['Estado Nombre'] == estado_n]
-        # Ordenar por mes
         df_estado['Mes'] = pd.Categorical(df_estado['Mes'], categories=orden, ordered=True)
         df_estado = df_estado.sort_values('Mes')
         
@@ -1247,9 +1508,6 @@ def update_dashboard(ciudad, estado, mes, dia, categoria, rango, start, end, fil
         height=400
     )
     
-    # ========================================
-    # Resumen Ejecutivo
-    # ========================================
     resumen = dbc.Row([
         dbc.Col(dbc.Card([dbc.CardBody([html.H6("🏆 Producto"), html.P(prod_top[:20], className="text-success")])], className="border-success"), width=3),
         dbc.Col(dbc.Card([dbc.CardBody([html.H6("🏙️ Ciudad"), html.P(data.groupby('Ciudad')['Ingreso Total'].sum().idxmax()[:20], className="text-primary")])], className="border-primary"), width=3),
@@ -1257,9 +1515,6 @@ def update_dashboard(ciudad, estado, mes, dia, categoria, rango, start, end, fil
         dbc.Col(dbc.Card([dbc.CardBody([html.H6("📦 Categoría"), html.P(data.groupby('Categoría')['Ingreso Total'].sum().idxmax()[:20], className="text-warning")])], className="border-warning"), width=3),
     ])
     
-    # ========================================
-    # Producto Estrella
-    # ========================================
     if filtro_prod == 'General':
         analisis = analizar_producto_estrella(data, "GLOBAL")
     elif filtro_prod == 'Mes':
@@ -1301,9 +1556,6 @@ def update_dashboard(ciudad, estado, mes, dia, categoria, rango, start, end, fil
         prod_container = html.P("No hay datos suficientes")
         factores = html.P("No hay datos suficientes")
     
-    # ========================================
-    # Producto por Mes
-    # ========================================
     prods_mes = data.groupby(['Mes','Producto'])['Cantidad Pedida'].sum().reset_index()
     idx = prods_mes.groupby('Mes')['Cantidad Pedida'].idxmax()
     top_mes = prods_mes.loc[idx].reset_index(drop=True)
@@ -1320,16 +1572,10 @@ def update_dashboard(ciudad, estado, mes, dia, categoria, rango, start, end, fil
         striped=True, bordered=True, size='sm'
     )
     
-    # ========================================
-    # Gráficos de Horas
-    # ========================================
-    
-    # Distribución por Hora
     horas = data.groupby('Hora')['ID de Pedido'].nunique().reset_index(name='Pedidos')
     fig_horas_dist = px.bar(horas, x='Hora', y='Pedidos', title='📊 Distribución por Hora',
                             color='Pedidos', color_continuous_scale='Viridis')
     
-    # Heatmap Hora vs Mes
     heat_hm = data.groupby(['Mes','Hora']).size().reset_index(name='Pedidos')
     pivot = heat_hm.pivot(index='Mes', columns='Hora', values='Pedidos').fillna(0)
     pivot = pivot.reindex(orden)
@@ -1340,7 +1586,6 @@ def update_dashboard(ciudad, estado, mes, dia, categoria, rango, start, end, fil
     ))
     fig_horas_heat.update_layout(title='🔥 Heatmap Hora vs Mes', height=400)
     
-    # Evolución Horas Pico
     top_horas = horas.nlargest(5, 'Pedidos')['Hora'].tolist()
     horas_evo = data[data['Hora'].isin(top_horas)].groupby(['Mes','Hora']).size().reset_index(name='Pedidos')
     
@@ -1356,9 +1601,6 @@ def update_dashboard(ciudad, estado, mes, dia, categoria, rango, start, end, fil
             ))
     fig_horas_evo.update_layout(title='📈 Evolución Horas Pico')
     
-    # ========================================
-    # COMPARADOR
-    # ========================================
     comp_kpis = html.P("Selecciona meses para comparar")
     fig_comp_tend = empty_fig
     fig_comp_dist = empty_fig
@@ -1367,7 +1609,6 @@ def update_dashboard(ciudad, estado, mes, dia, categoria, rango, start, end, fil
     if meses_comp and len(meses_comp) > 0:
         meses_con_datos = [m for m in meses_comp if not data[data['Mes']==m].empty]
         if meses_con_datos:
-            # KPIs
             filas = []
             for i in range(0, len(meses_con_datos), 3):
                 fila = meses_con_datos[i:i+3]
@@ -1388,7 +1629,6 @@ def update_dashboard(ciudad, estado, mes, dia, categoria, rango, start, end, fil
                 filas.append(dbc.Row(cols, className="mb-2"))
             comp_kpis = html.Div(filas)
             
-            # GRÁFICO TENDENCIA COMPARATIVA
             fig_comp_tend = go.Figure()
             colors = px.colors.qualitative.Set1
             for i, m in enumerate(meses_con_datos):
@@ -1408,7 +1648,6 @@ def update_dashboard(ciudad, estado, mes, dia, categoria, rango, start, end, fil
                 hovermode='x unified'
             )
             
-            # MEJORA: GRÁFICO DE DISTRIBUCIÓN POR HORA PARA COMPARADOR
             fig_comp_dist = go.Figure()
             for i, m in enumerate(meses_con_datos):
                 dm = data[data['Mes']==m]
@@ -1429,7 +1668,6 @@ def update_dashboard(ciudad, estado, mes, dia, categoria, rango, start, end, fil
                 height=300
             )
             
-            # Tabla
             rows = []
             for m in meses_con_datos:
                 dm = data[data['Mes']==m]
@@ -1445,9 +1683,6 @@ def update_dashboard(ciudad, estado, mes, dia, categoria, rango, start, end, fil
                 striped=True, size='sm'
             )
     
-    # ========================================
-    # Productos Complementarios
-    # ========================================
     top_pares = analizar_productos_complementarios(data)
     
     if top_pares:
@@ -1473,9 +1708,9 @@ def update_dashboard(ciudad, estado, mes, dia, categoria, rango, start, end, fil
             fig_horas_dist, fig_horas_heat, fig_horas_evo,
             fig_comp_tend, fig_comp_dist, comp_kpis, comp_tabla, prod_comp)
 
-# ========================================
-# CALLBACK PARA MODAL DE HORAS (INTERACTIVO)
-# ========================================
+# ============================================
+# CALLBACK PARA MODAL DE HORAS
+# ============================================
 @callback(
     [Output('modal-horas', 'is_open'),
      Output('modal-horas-titulo', 'children'),
@@ -1493,22 +1728,16 @@ def update_dashboard(ciudad, estado, mes, dia, categoria, rango, start, end, fil
     prevent_initial_call=True
 )
 def modal_horas(clickData, cerrar_clicks, is_open, start, end, ciudad, estado, categoria, mes, dia):
-    """
-    Muestra un modal con detalles de productos cuando se hace clic en una hora del gráfico.
-    """
     ctx = dash.callback_context
     
-    # Si se cerró el modal
     if ctx.triggered and 'cerrar-modal-horas' in ctx.triggered[0]['prop_id']:
         return False, "", html.P("")
     
     if not clickData:
         return False, "", html.P("")
     
-    # Obtener la hora clickeada
     hora = clickData['points'][0]['x']
     
-    # Aplicar filtros
     data = df.copy()
     
     if estado != 'Todos':
@@ -1529,13 +1758,11 @@ def modal_horas(clickData, cerrar_clicks, is_open, start, end, ciudad, estado, c
     except:
         pass
     
-    # Filtrar por la hora seleccionada
     data_hora = data[data['Hora'] == hora]
     
     if data_hora.empty:
         return True, f"⏰ Hora: {hora}:00", html.P("No hay datos para esta hora")
     
-    # Top 10 productos
     top_productos = data_hora.groupby('Producto').agg({
         'Cantidad Pedida': 'sum',
         'Ingreso Total': 'sum',
@@ -1565,13 +1792,10 @@ def modal_horas(clickData, cerrar_clicks, is_open, start, end, ciudad, estado, c
         striped=True, bordered=True, hover=True, size='sm'
     )
     
-    # KPIs de la hora
     total_unidades = data_hora['Cantidad Pedida'].sum()
     total_ingresos = data_hora['Ingreso Total'].sum()
     total_pedidos = data_hora['ID de Pedido'].nunique()
     ticket_promedio_hora = total_ingresos / total_pedidos if total_pedidos > 0 else 0
-    
-    # Comparación con el promedio general
     promedio_general_unidades = data['Cantidad Pedida'].sum() / 24 if len(data) > 0 else 0
     variacion = ((total_unidades / promedio_general_unidades) - 1) * 100 if promedio_general_unidades > 0 else 0
     
@@ -1611,29 +1835,173 @@ def modal_horas(clickData, cerrar_clicks, is_open, start, end, ciudad, estado, c
     
     return True, f"⏰ Hora: {hora}:00", contenido
 
-# ========================================
+# ============================================
+# CALLBACK PARA MODAL DE DÍAS
+# ============================================
+@callback(
+    [Output('modal-dias', 'is_open'),
+     Output('modal-dias-titulo', 'children'),
+     Output('modal-dias-contenido', 'children')],
+    [Input('graf-dias', 'clickData'),
+     Input('cerrar-modal-dias', 'n_clicks')],
+    [State('modal-dias', 'is_open'),
+     State('fechas', 'start_date'),
+     State('fechas', 'end_date'),
+     State('ciudad', 'value'),
+     State('estado', 'value'),
+     State('categoria', 'value'),
+     State('mes', 'value')],
+    prevent_initial_call=True
+)
+def modal_dias(clickData, cerrar_clicks, is_open, start, end, ciudad, estado, categoria, mes):
+    ctx = dash.callback_context
+    
+    if ctx.triggered and 'cerrar-modal-dias' in ctx.triggered[0]['prop_id']:
+        return False, "", html.P("")
+    
+    if not clickData:
+        return False, "", html.P("")
+    
+    dia_nombre = clickData['points'][0]['x']
+    
+    data = df.copy()
+    
+    if estado != 'Todos':
+        data = data[data['Estado Nombre'] == estado]
+    if ciudad != 'Todas':
+        data = data[data['Ciudad'] == ciudad]
+    if mes != 'Todos':
+        data = data[data['Mes'] == mes]
+    if categoria != 'Todas':
+        data = data[data['Categoría'] == categoria]
+    
+    try:
+        start_date = pd.to_datetime(start).date()
+        end_date = pd.to_datetime(end).date()
+        data = data[(data['Fecha'] >= start_date) & (data['Fecha'] <= end_date)]
+    except:
+        pass
+    
+    data_dia = data[data['Día Semana Nombre'] == dia_nombre]
+    
+    if data_dia.empty:
+        return True, f"📆 Día: {dia_nombre}", html.P("No hay datos para este día")
+    
+    top_productos = data_dia.groupby('Producto').agg({
+        'Cantidad Pedida': 'sum',
+        'Ingreso Total': 'sum',
+        'ID de Pedido': 'nunique'
+    }).sort_values('Cantidad Pedida', ascending=False).head(10).reset_index()
+    
+    rows = []
+    for _, r in top_productos.iterrows():
+        ticket_promedio = r['Ingreso Total'] / r['ID de Pedido'] if r['ID de Pedido'] > 0 else 0
+        rows.append(html.Tr([
+            html.Td(r['Producto'][:40]),
+            html.Td(f"{r['Cantidad Pedida']:,.0f}", className="text-end"),
+            html.Td(f"${r['Ingreso Total']:,.0f}", className="text-end"),
+            html.Td(f"{r['ID de Pedido']:,}", className="text-end"),
+            html.Td(f"${ticket_promedio:,.2f}", className="text-end")
+        ]))
+    
+    tabla = dbc.Table(
+        [html.Thead(html.Tr([
+            html.Th("Producto"),
+            html.Th("Unidades", className="text-end"),
+            html.Th("Ingresos", className="text-end"),
+            html.Th("Pedidos", className="text-end"),
+            html.Th("Ticket Prom", className="text-end")
+        ])),
+         html.Tbody(rows)],
+        striped=True, bordered=True, hover=True, size='sm'
+    )
+    
+    total_unidades = data_dia['Cantidad Pedida'].sum()
+    total_ingresos = data_dia['Ingreso Total'].sum()
+    total_pedidos = data_dia['ID de Pedido'].nunique()
+    ticket_promedio_dia = total_ingresos / total_pedidos if total_pedidos > 0 else 0
+    ventas_hora = data_dia.groupby('Hora')['ID de Pedido'].nunique().reset_index(name='Pedidos')
+    hora_pico = ventas_hora.loc[ventas_hora['Pedidos'].idxmax(), 'Hora'] if not ventas_hora.empty else "N/A"
+    promedio_otros_dias = data[data['Día Semana Nombre'] != dia_nombre]['Cantidad Pedida'].sum() / 6 if len(data) > 0 else 0
+    variacion = ((total_unidades / promedio_otros_dias) - 1) * 100 if promedio_otros_dias > 0 else 0
+    tipo_dia = "🏖️ FIN DE SEMANA" if dia_nombre in ['Sábado', 'Domingo'] else "💼 DÍA LABORABLE"
+    
+    contenido = html.Div([
+        dbc.Row([
+            dbc.Col(dbc.Card([
+                dbc.CardBody([
+                    html.H6("📦 Unidades", className="text-center"),
+                    html.H4(f"{total_unidades:,.0f}", className="text-center text-primary")
+                ])
+            ]), width=3),
+            dbc.Col(dbc.Card([
+                dbc.CardBody([
+                    html.H6("💰 Ingresos", className="text-center"),
+                    html.H4(f"${total_ingresos:,.0f}", className="text-center text-success")
+                ])
+            ]), width=3),
+            dbc.Col(dbc.Card([
+                dbc.CardBody([
+                    html.H6("📋 Pedidos", className="text-center"),
+                    html.H4(f"{total_pedidos:,}", className="text-center text-info")
+                ])
+            ]), width=3),
+            dbc.Col(dbc.Card([
+                dbc.CardBody([
+                    html.H6("🎫 Ticket", className="text-center"),
+                    html.H4(f"${ticket_promedio_dia:,.2f}", className="text-center text-warning")
+                ])
+            ]), width=3),
+        ], className="mb-3"),
+        
+        dbc.Row([
+            dbc.Col(dbc.Card([
+                dbc.CardBody([
+                    html.H6("⏰ Hora Pico", className="text-center"),
+                    html.H4(f"{hora_pico}:00", className="text-center text-danger")
+                ])
+            ]), width=4),
+            dbc.Col(dbc.Card([
+                dbc.CardBody([
+                    html.H6("📊 vs Otros Días", className="text-center"),
+                    html.H4(f"{variacion:+.1f}%", className=f"text-center {'text-success' if variacion>0 else 'text-danger' if variacion<0 else 'text-warning'}")
+                ])
+            ]), width=4),
+            dbc.Col(dbc.Card([
+                dbc.CardBody([
+                    html.H6("📆 Tipo", className="text-center"),
+                    html.H6(tipo_dia, className="text-center text-secondary")
+                ])
+            ]), width=4),
+        ], className="mb-3"),
+        
+        html.P(f"📊 Este día representa el {variacion:+.1f}% del promedio de otros días", 
+               className="text-muted small text-end"),
+        html.Hr(),
+        html.H5(f"📦 Top 10 productos más vendidos los {dia_nombre}s"),
+        tabla
+    ])
+    
+    return True, f"📆 Día: {dia_nombre}", contenido
+
+# ============================================
 # CALLBACK PARA EVENTOS
-# ========================================
+# ============================================
 @callback(
     Output("resultado-eventos", "children"),
     [Input(f'btn-evento-{i}', 'n_clicks') for i in range(len(eventos_con_datos))],
     prevent_initial_call=True
 )
 def mostrar_evento(*args):
-    """
-    Muestra el análisis detallado de un evento especial cuando se hace clic en su botón.
-    """
     ctx = dash.callback_context
     
     if not ctx.triggered:
         return html.P("Haz clic en un botón para ver los detalles del evento")
     
-    # Identificar qué botón se clickeó
     boton_id = ctx.triggered[0]['prop_id'].split('.')[0]
     indice = int(boton_id.replace('btn-evento-', ''))
     evento_nombre = eventos_con_datos[indice]
     
-    # Filtrar datos del evento
     data_evento = df[df['Evento'] == evento_nombre]
     
     if data_evento.empty:
@@ -1641,17 +2009,14 @@ def mostrar_evento(*args):
             dbc.Alert(f"No hay datos para {evento_nombre}", color="warning")
         ])
     
-    # Calcular métricas
     total_ingresos = data_evento['Ingreso Total'].sum()
     total_pedidos = data_evento['ID de Pedido'].nunique()
     total_unidades = data_evento['Cantidad Pedida'].sum()
     ticket_promedio = total_ingresos / total_pedidos if total_pedidos > 0 else 0
     
-    # Top 5 productos
     top_productos = data_evento.groupby('Producto')['Cantidad Pedida'].sum().nlargest(5).reset_index()
     top_productos.columns = ['Producto', 'Unidades Vendidas']
     
-    # Calcular comparación con día normal
     data_normal = df[df['Evento'] == 'Normal']
     if not data_normal.empty:
         ventas_por_dia_normal = data_normal.groupby('Fecha')['Ingreso Total'].sum().mean()
@@ -1659,7 +2024,6 @@ def mostrar_evento(*args):
     else:
         incremento = 0
     
-    # Determinar color según incremento
     if incremento > 50:
         color = "success"
         icono = "🚀"
@@ -1681,7 +2045,6 @@ def mostrar_evento(*args):
         icono = "📉"
         mensaje = "Malo"
     
-    # Crear resultado
     resultado = html.Div([
         dbc.Card([
             dbc.CardHeader([
@@ -1728,7 +2091,6 @@ def mostrar_evento(*args):
 # 16. EJECUCIÓN
 # ============================================
 def abrir_navegador():
-    """Abre el navegador automáticamente después de iniciar el servidor"""
     webbrowser.open('http://127.0.0.1:8050')
 
 if __name__ == '__main__':
@@ -1741,11 +2103,7 @@ if __name__ == '__main__':
     for e in eventos_con_datos:
         print(f"   • {e}: {len(df[df['Evento'] == e]):,} registros")
     print("\n✅ Pestañas: GENERAL | COMPARADOR | PRODUCTO | HORAS | EVENTOS | COMPLEMENTOS | PROPUESTAS")
-    print("\n✅ MEJORAS IMPLEMENTADAS:")
-    print("   • Gráfico de variación mensual por estado (Top 5)")
-    print("   • Gráfico de distribución por hora en comparador")
-    print("   • Consistencia en filtros temporales")
-    print("   • Documentación mejorada con docstrings")
+    print("\n✅ EXPORTACIÓN DE DATOS VISIBLES: CSV | Excel | PDF | Informe Completo")
     print("\n" + "="*80)
     
     threading.Timer(2, abrir_navegador).start()
